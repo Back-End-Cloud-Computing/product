@@ -30,3 +30,7 @@ class EmbeddingGenerationError(ProductServiceError):
 
 class VectorStoreError(ProductServiceError):
     """Raised when a ChromaDB operation fails."""
+
+
+class AgenticSearchError(ProductServiceError):
+    """Raised when the agentic search loop fails to produce a result."""

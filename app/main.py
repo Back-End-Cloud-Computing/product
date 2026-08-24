@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.exceptions import (
+    AgenticSearchError,
     DescriptionNotApprovedError,
     DuplicateSkuError,
     EmbeddingGenerationError,
@@ -32,7 +33,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         description=(
             "Microsservico de Produto: cadastro, geracao de descricao comercial via LLM, "
-            "embeddings, busca lexical/semantica/hibrida e recomendacao."
+            "embeddings, busca lexical/semantica/agentica e recomendacao."
         ),
         version="1.0.0",
         lifespan=lifespan,
@@ -65,6 +66,10 @@ def create_app() -> FastAPI:
     @application.exception_handler(VectorStoreError)
     async def vector_store_error_handler(request: Request, exc: VectorStoreError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": str(exc), "error_type": "vector_store_error"})
+
+    @application.exception_handler(AgenticSearchError)
+    async def agentic_search_error_handler(request: Request, exc: AgenticSearchError) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": str(exc), "error_type": "agentic_search_error"})
 
     @application.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

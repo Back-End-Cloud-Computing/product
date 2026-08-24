@@ -8,11 +8,6 @@ from app.services import embedding_service
 
 logger = logging.getLogger(__name__)
 
-# Reciprocal Rank Fusion constant: a higher K flattens the influence of rank
-# position, so results with only one strong signal (lexical OR semantic) aren't
-# completely dominated by items that merely appear in both lists.
-RRF_K = 60
-
 
 async def search_lexical(query: str, limit: int = 10) -> list[tuple[dict[str, Any], float]]:
     """Keyword-based search over MongoDB's text index."""
@@ -55,31 +50,3 @@ async def search_semantic(query: str, limit: int = 10) -> list[tuple[dict[str, A
             similarity = max(0.0, 1.0 - distance)
             results.append((doc, similarity))
     return results
-
-
-async def search_hybrid(query: str, limit: int = 10) -> list[tuple[dict[str, Any], float]]:
-    """Combines lexical and semantic rankings via Reciprocal Rank Fusion (RRF).
-
-    RRF is used instead of a weighted sum of raw scores because lexical
-    (textScore) and semantic (cosine similarity) scores live on different,
-    backend-specific scales that aren't directly comparable; fusing by rank
-    position avoids having to hand-tune a normalization between them.
-    """
-    lexical_results = await search_lexical(query, limit=limit * 2)
-    semantic_results = await search_semantic(query, limit=limit * 2)
-
-    fused_scores: dict[str, float] = {}
-    docs_by_id: dict[str, dict[str, Any]] = {}
-
-    for rank, (doc, _score) in enumerate(lexical_results):
-        product_id = str(doc["_id"])
-        docs_by_id[product_id] = doc
-        fused_scores[product_id] = fused_scores.get(product_id, 0.0) + 1.0 / (RRF_K + rank + 1)
-
-    for rank, (doc, _score) in enumerate(semantic_results):
-        product_id = str(doc["_id"])
-        docs_by_id[product_id] = doc
-        fused_scores[product_id] = fused_scores.get(product_id, 0.0) + 1.0 / (RRF_K + rank + 1)
-
-    ranked = sorted(fused_scores.items(), key=lambda item: item[1], reverse=True)[:limit]
-    return [(docs_by_id[product_id], score) for product_id, score in ranked]

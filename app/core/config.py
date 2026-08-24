@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     llm_model: str = "qwen/qwen3-8b:free"
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_timeout_seconds: int = 30
+    llm_timeout_seconds: int = 60
+
+    agentic_search_max_iterations: int = 3
 
 
 @lru_cache

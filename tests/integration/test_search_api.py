@@ -1,7 +1,7 @@
-# Note: /search/lexical and /search/hybrid are not exercised end-to-end here
-# because mongomock (used to fake MongoDB in tests) does not implement the
-# $text operator. The RRF fusion logic behind /search/hybrid is covered at
-# the unit level in tests/unit/test_search_service.py instead.
+# Note: /search/lexical is not exercised end-to-end here because mongomock
+# (used to fake MongoDB in tests) does not implement the $text operator. The
+# equivalent lexical-strategy path of /search/agentic_search is covered at the
+# unit level in tests/unit/test_agentic_search_service.py instead.
 
 
 async def test_semantic_search_returns_empty_when_no_matches(api_client):

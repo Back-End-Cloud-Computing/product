@@ -7,7 +7,7 @@ Product microservice for an e-commerce platform, built with **FastAPI** + **Mong
 - CRUD for products (name, SKU, sale type, brand, category, free-form attributes).
 - LLM-assisted commercial description: the model only **suggests** text; the user edits/approves it before it's persisted.
 - Semantic embeddings generated from the approved product data and stored in a vector database, kept in sync with MongoDB.
-- Lexical, semantic, and hybrid product search.
+- Lexical, semantic, and agentic product search (an LLM decides, per query, whether to run lexical, semantic, or both).
 - Recommendations combining vector similarity with (currently mocked) behavioral signals — purchase history, viewed items, cart contents, similar users.
 
 Out of scope for now: authentication, the actual Cart/Order/Customer services (mocked behind interfaces), and real payment/checkout flows.
@@ -30,7 +30,7 @@ Out of scope for now: authentication, the actual Cart/Order/Customer services (m
 
 Keyword search only finds products whose *exact words* match the query. A customer searching "celular com bastante armazenamento" won't match a product named "Smartphone Galaxy Z, 128GB" through keywords alone, even though it's exactly what they want.
 
-To solve that, every approved product description (plus name, brand, category, and attributes) is converted into a numeric vector — an **embedding** — that captures its meaning rather than its exact wording. **ChromaDB** stores these vectors, indexed by the product's MongoDB `_id`, and lets us ask "which products are semantically closest to *this* query vector?" via cosine similarity. That's what powers `/search/semantic` and half of `/search/hybrid`.
+To solve that, every approved product description (plus name, brand, category, and attributes) is converted into a numeric vector — an **embedding** — that captures its meaning rather than its exact wording. **ChromaDB** stores these vectors, indexed by the product's MongoDB `_id`, and lets us ask "which products are semantically closest to *this* query vector?" via cosine similarity. That's what powers `/search/semantic` and, when the agent picks it, part of `/search/agentic_search`.
 
 **MongoDB stays the single source of truth** for structured data; ChromaDB only ever holds a derived representation. The two are not updated in a single transaction, so consistency between them is handled explicitly:
 
@@ -38,7 +38,7 @@ To solve that, every approved product description (plus name, brand, category, a
 - Confirming a description (`PATCH /products/{id}/description`) writes to MongoDB first, then attempts to embed and upsert into ChromaDB. If that upsert fails (network hiccup, ChromaDB down, etc.), the failure is recorded on the product instead of failing the whole request — the product still exists and is searchable lexically.
 - `POST /products/{id}/embedding/sync` lets a client (or a future retry job) re-attempt a failed sync at any time, giving eventual consistency without distributed transactions.
 
-`/search/hybrid` merges the lexical (MongoDB text index) and semantic (ChromaDB) result lists using **Reciprocal Rank Fusion** — items are scored by their rank position in each list rather than by raw score, since a MongoDB text score and a cosine similarity aren't on comparable scales.
+`/search/agentic_search` replaces the old fixed hybrid endpoint with an LLM-driven agent loop: each iteration the model decides whether to run lexical, semantic, or both, results are merged across iterations via **Reciprocal Rank Fusion** (same rationale as before — a MongoDB text score and a cosine similarity aren't on comparable scales, so fusing by rank position avoids hand-tuning a normalization between them), and the model evaluates whether coverage is sufficient or the query should be reformulated for another pass. It's available as `POST /search/agentic_search` (single response) and `WS /search/agentic_search/ws` (streams each iteration's progress before the final result).
 
 ## Architecture
 
@@ -84,7 +84,8 @@ Interactive docs (Swagger UI) are always available at **`/docs`** once the servi
 |---|---|---|
 | `GET` | `/search/lexical?q=` | Keyword search over MongoDB's text index. |
 | `GET` | `/search/semantic?q=` | Meaning-based search via embeddings + ChromaDB — matches even without keyword overlap. |
-| `GET` | `/search/hybrid?q=` | Lexical + semantic results merged via Reciprocal Rank Fusion. |
+| `POST` | `/search/agentic_search` | Agentic search: an LLM decides per iteration between lexical, semantic, or both, until coverage is sufficient or a max iteration count is hit. Returns the final relevant documents. |
+| `WS` | `/search/agentic_search/ws` | Same agentic search as above, streaming each iteration's progress (strategy chosen, new documents, estimated coverage) before the final result. |
 
 ### Recommendations
 
