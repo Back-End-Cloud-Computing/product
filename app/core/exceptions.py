@@ -25,11 +25,8 @@ class LLMProviderError(ProductServiceError):
 
 
 class EmbeddingGenerationError(ProductServiceError):
-    """Raised when embedding generation fails."""
-
-
-class VectorStoreError(ProductServiceError):
-    """Raised when a ChromaDB operation fails."""
+    """Raised when the embedding-reranking service fails to index a product or
+    run a semantic search (embedding generation, or its call to vector-db)."""
 
 
 class AgenticSearchError(ProductServiceError):

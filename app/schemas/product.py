@@ -55,6 +55,14 @@ class ProductListResponse(BaseModel):
     limit: int
 
 
+class ProductBatchRequest(BaseModel):
+    ids: list[str] = Field(..., min_length=1, max_length=100)
+
+
+class ProductBatchResponse(BaseModel):
+    items: list[ProductResponse]
+
+
 class DescriptionGenerateResponse(BaseModel):
     """A suggestion only: nothing is persisted until the user confirms it via PATCH."""
 

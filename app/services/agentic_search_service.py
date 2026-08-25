@@ -4,9 +4,10 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
+from app.clients import llm_provider_client
 from app.core.config import get_settings
 from app.core.exceptions import AgenticSearchError, LLMProviderError
-from app.services import llm_service, product_service, search_service
+from app.services import product_service, search_service
 
 logger = logging.getLogger(__name__)
 
@@ -129,13 +130,13 @@ def _final_source(sources: set[str]) -> str:
     return next(iter(sources))
 
 
-async def _decidir_estrategia(provider: llm_service.LLMProvider, state: AgenticSearchState, current_query: str) -> str:
+async def _decidir_estrategia(state: AgenticSearchState, current_query: str) -> str:
     """Asks the LLM which strategy to use this iteration. Any failure to reach the
     provider, or a response that isn't parseable JSON with a known strategy,
     degrades to "hybrid" so the loop keeps making forward progress offline."""
     prompt = _build_strategy_prompt(state, current_query)
     try:
-        raw = await provider.generate_text(prompt)
+        raw = await llm_provider_client.generate_text(prompt)
     except LLMProviderError:
         return "hybrid"
 
@@ -144,9 +145,7 @@ async def _decidir_estrategia(provider: llm_service.LLMProvider, state: AgenticS
     return strategy if strategy in _VALID_STRATEGIES else "hybrid"
 
 
-async def _avaliar_cobertura(
-    provider: llm_service.LLMProvider, state: AgenticSearchState, limit: int
-) -> dict[str, Any]:
+async def _avaliar_cobertura(state: AgenticSearchState, limit: int) -> dict[str, Any]:
     """Asks the LLM whether the documents found so far satisfy the user's intent.
     Falls back to a simple document-count heuristic when the provider is
     unreachable or answers with something unparseable."""
@@ -158,7 +157,7 @@ async def _avaliar_cobertura(
 
     prompt = _build_evaluation_prompt(state, limit)
     try:
-        raw = await provider.generate_text(prompt)
+        raw = await llm_provider_client.generate_text(prompt)
     except LLMProviderError:
         return heuristica
 
@@ -215,16 +214,14 @@ def _agregar_resultados(
     return novos
 
 
-async def _gerar_justificativas(
-    provider: llm_service.LLMProvider, query: str, documentos: list[dict[str, Any]]
-) -> dict[str, str]:
+async def _gerar_justificativas(query: str, documentos: list[dict[str, Any]]) -> dict[str, str]:
     if not documentos:
         return {}
 
     prompt = _build_justification_prompt(query, documentos)
     parsed: list[dict[str, Any]] | None = None
     try:
-        raw = await provider.generate_text(prompt)
+        raw = await llm_provider_client.generate_text(prompt)
         parsed = _parse_json_array(raw)
     except LLMProviderError:
         parsed = None
@@ -267,13 +264,11 @@ async def buscar_agentica(
     current_query = query
 
     try:
-        provider = llm_service.get_llm_provider()
-
         while state.iteration < max_iter:
             state.iteration += 1
             state.query_history.append(current_query)
 
-            strategy = await _decidir_estrategia(provider, state, current_query)
+            strategy = await _decidir_estrategia(state, current_query)
             yield {
                 "type": "iteration_start",
                 "iteration": state.iteration,
@@ -284,7 +279,7 @@ async def buscar_agentica(
             lexical_results, semantic_results = await _executar_estrategia(strategy, current_query, limit)
             novos = _agregar_resultados(state, lexical_results, semantic_results)
 
-            avaliacao = await _avaliar_cobertura(provider, state, limit)
+            avaliacao = await _avaliar_cobertura(state, limit)
             state.coverage = avaliacao["coverage"]
 
             yield {
@@ -305,7 +300,7 @@ async def buscar_agentica(
             {"id": doc_id, "doc": info["doc"], "score": info["score"], "sources": info["sources"]}
             for doc_id, info in ranked
         ]
-        justificativas = await _gerar_justificativas(provider, state.original_query, documentos_selecionados)
+        justificativas = await _gerar_justificativas(state.original_query, documentos_selecionados)
 
         resultados = [
             {

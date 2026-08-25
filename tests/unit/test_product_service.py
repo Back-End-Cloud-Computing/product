@@ -71,13 +71,13 @@ async def test_retry_embedding_sync_requires_approved_description(mongo_database
 
 
 async def test_sync_embedding_failure_is_recorded_not_raised(mongo_database, monkeypatch):
+    from app.clients import embedding_reranking_client
     from app.core.exceptions import EmbeddingGenerationError
-    from app.services import embedding_service
 
-    async def broken_generate_embedding(text: str):
+    async def broken_index_product(product_id, text, metadata):
         raise EmbeddingGenerationError("boom")
 
-    monkeypatch.setattr(embedding_service, "generate_embedding", broken_generate_embedding)
+    monkeypatch.setattr(embedding_reranking_client, "index_product", broken_index_product)
 
     created = await product_service.create_product(
         ProductCreate(name="A", sku="SKU-500", sale_type="eletronico", brand="B", category="C")

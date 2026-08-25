@@ -15,18 +15,15 @@ class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_database: str = "product_service"
 
-    chroma_host: str = "localhost"
-    chroma_port: int = 8001
-    chroma_collection: str = "products"
+    embedding_reranking_base_url: str = "http://localhost:8003"
+    embedding_reranking_timeout_seconds: int = 30
 
-    embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    embedding_device: str = "cpu"
+    vector_db_base_url: str = "http://localhost:8002"
+    vector_db_timeout_seconds: int = 10
 
-    llm_provider: str = "mock"
-    llm_model: str = "qwen/qwen3-8b:free"
-    openrouter_api_key: str | None = None
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    llm_timeout_seconds: int = 60
+    llm_provider_base_url: str = "http://localhost:8004"
+    llm_provider_ws_url: str = "ws://localhost:8004"
+    llm_provider_timeout_seconds: int = 60
 
     agentic_search_max_iterations: int = 3
 

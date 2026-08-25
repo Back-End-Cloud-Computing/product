@@ -4,18 +4,57 @@ from typing import Any
 
 from pymongo.errors import DuplicateKeyError
 
+from app.clients import embedding_reranking_client, llm_provider_client, vector_db_client
 from app.core.exceptions import (
     DescriptionNotApprovedError,
     DuplicateSkuError,
     ProductNotFoundError,
 )
 from app.core.mongo_utils import to_object_id
-from app.database import chromadb_client, mongodb
+from app.database import mongodb
 from app.models.product import DescriptionStatus, EmbeddingSyncStatus, ProductDocument
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
-from app.services import embedding_service, llm_service
 
 logger = logging.getLogger(__name__)
+
+
+def build_semantic_text(
+    name: str,
+    brand: str,
+    category: str,
+    description: str,
+    attributes: dict[str, Any],
+) -> str:
+    """Combine the semantically relevant product fields into a single text blob
+    sent to embedding-reranking, both as the embedding input and as the
+    document stored in the vector-db. Lives here (not in embedding-reranking)
+    because it depends on the product's own schema."""
+    attributes_text = " ".join(f"{key}: {value}" for key, value in attributes.items())
+    parts = [name, brand, category, description, attributes_text]
+    return " | ".join(part for part in parts if part)
+
+
+def build_description_prompt(
+    name: str,
+    brand: str,
+    category: str,
+    sale_type: str,
+    attributes: dict[str, Any],
+) -> str:
+    attributes_text = ", ".join(f"{key}: {value}" for key, value in attributes.items())
+    if not attributes_text:
+        attributes_text = "nenhum atributo adicional informado"
+
+    return (
+        "Você é um redator de e-commerce. Escreva uma descrição comercial persuasiva e "
+        "objetiva, em português, para o produto abaixo. Use no máximo 3 parágrafos curtos "
+        "e não invente características que não foram informadas.\n\n"
+        f"Nome: {name}\n"
+        f"Marca: {brand}\n"
+        f"Categoria: {category}\n"
+        f"Tipo de venda: {sale_type}\n"
+        f"Atributos: {attributes_text}\n"
+    )
 
 
 def document_to_response(doc: dict[str, Any]) -> ProductResponse:
@@ -91,6 +130,16 @@ async def list_products(
     return items, total
 
 
+async def get_products_batch(product_ids: list[str]) -> list[ProductResponse]:
+    """Hydrate a batch of product ids, used to enrich the thin `product_id` +
+    `score` results returned by vector-db's recommendation endpoints (that
+    service has no MongoDB access, so it can't return full product data)."""
+    collection = mongodb.get_products_collection()
+    object_ids = [to_object_id(pid) for pid in product_ids]
+    cursor = collection.find({"_id": {"$in": object_ids}})
+    return [document_to_response(doc) async for doc in cursor]
+
+
 async def update_product(product_id: str, payload: ProductUpdate) -> ProductResponse:
     """Partial update of product metadata (PATCH semantics: unset fields are left untouched)."""
     collection = mongodb.get_products_collection()
@@ -110,11 +159,15 @@ async def update_product(product_id: str, payload: ProductUpdate) -> ProductResp
 
 
 async def delete_product(product_id: str) -> None:
+    """Product-service stays the orchestrator of the product lifecycle: delete
+    from MongoDB (the source of truth) first, then remove the corresponding
+    vector directly on vector-db. No embedding needs generating to delete one,
+    so this is the one call that skips embedding-reranking entirely."""
     collection = mongodb.get_products_collection()
     result = await collection.delete_one({"_id": to_object_id(product_id)})
     if result.deleted_count == 0:
         raise ProductNotFoundError(product_id)
-    await chromadb_client.delete_embedding(product_id)
+    await vector_db_client.delete_product(product_id)
 
 
 async def generate_description_suggestion(product_id: str) -> ProductResponse:
@@ -122,15 +175,14 @@ async def generate_description_suggestion(product_id: str) -> ProductResponse:
     here: the suggestion is stored under `suggested_description` until the user
     reviews/edits it and confirms via `confirm_description`."""
     product = await get_product(product_id)
-    prompt = llm_service.build_description_prompt(
+    prompt = build_description_prompt(
         name=product.name,
         brand=product.brand,
         category=product.category,
         sale_type=product.sale_type,
         attributes=product.attributes,
     )
-    provider = llm_service.get_llm_provider()
-    suggested_text = await provider.generate_text(prompt)
+    suggested_text = await llm_provider_client.generate_description(prompt)
 
     collection = mongodb.get_products_collection()
     updated = await collection.find_one_and_update(
@@ -172,7 +224,8 @@ async def confirm_description(product_id: str, final_description: str) -> Produc
 
 
 async def sync_embedding(product: ProductResponse) -> None:
-    """Generate the embedding and upsert it into ChromaDB.
+    """Trigger embedding-reranking to (re)generate the embedding and index it
+    into the vector-db.
 
     MongoDB is the source of truth and has already been updated by the caller
     before this runs: a failure here must never roll back or fail the parent
@@ -182,24 +235,22 @@ async def sync_embedding(product: ProductResponse) -> None:
     """
     collection = mongodb.get_products_collection()
     try:
-        text = embedding_service.build_semantic_text(
+        text = build_semantic_text(
             name=product.name,
             brand=product.brand,
             category=product.category,
             description=product.description or "",
             attributes=product.attributes,
         )
-        embedding = await embedding_service.generate_embedding(text)
-        await chromadb_client.upsert_embedding(
+        await embedding_reranking_client.index_product(
             product_id=product.id,
-            embedding=embedding,
+            text=text,
             metadata={
                 "sku": product.sku,
                 "brand": product.brand,
                 "category": product.category,
                 "sale_type": product.sale_type,
             },
-            document=text,
         )
         await collection.update_one(
             {"_id": to_object_id(product.id)},

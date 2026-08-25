@@ -11,10 +11,9 @@ from app.core.exceptions import (
     EmbeddingGenerationError,
     LLMProviderError,
     ProductNotFoundError,
-    VectorStoreError,
 )
 from app.core.logging import configure_logging
-from app.database import chromadb_client, mongodb
+from app.database import mongodb
 from app.routes import api_router
 
 
@@ -22,7 +21,6 @@ from app.routes import api_router
 async def lifespan(app: FastAPI):
     configure_logging()
     await mongodb.connect_to_mongo()
-    chromadb_client.connect_to_chromadb()
     yield
     await mongodb.close_mongo_connection()
 
@@ -32,8 +30,8 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title=settings.app_name,
         description=(
-            "Microsservico de Produto: cadastro, geracao de descricao comercial via LLM, "
-            "embeddings, busca lexical/semantica/agentica e recomendacao."
+            "Microsservico de Produto: CRUD, geracao de descricao comercial via llm-provider, "
+            "busca lexical/semantica/agentica (semantica e agentica via embedding-reranking)."
         ),
         version="1.0.0",
         lifespan=lifespan,
@@ -62,10 +60,6 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=503, content={"detail": str(exc), "error_type": "embedding_generation_error"}
         )
-
-    @application.exception_handler(VectorStoreError)
-    async def vector_store_error_handler(request: Request, exc: VectorStoreError) -> JSONResponse:
-        return JSONResponse(status_code=503, content={"detail": str(exc), "error_type": "vector_store_error"})
 
     @application.exception_handler(AgenticSearchError)
     async def agentic_search_error_handler(request: Request, exc: AgenticSearchError) -> JSONResponse:

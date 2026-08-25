@@ -39,34 +39,33 @@ async def api_client(mongo_database):
 
 @pytest.fixture(autouse=True)
 def patch_external_dependencies(monkeypatch):
-    """Keeps every test offline by faking only the actual I/O boundaries
-    (model loading, ChromaDB network calls) — NOT the service functions that
-    contain logic under test (`generate_embedding`, `get_llm_provider`), so
-    their real error-handling/fallback behavior still runs in tests.
+    """Keeps every test offline by faking only the actual I/O boundaries — the
+    outbound HTTP/WS calls to embedding-reranking, vector-db and llm-provider —
+    NOT the service functions that contain logic under test, so their real
+    error-handling/fallback behavior still runs in tests."""
+    from app.clients import embedding_reranking_client, llm_provider_client, vector_db_client
 
-    The LLM path needs no fake at all: `Settings.llm_provider` already
-    defaults to "mock", so `llm_service.get_llm_provider()` naturally resolves
-    to the offline `MockLLMProvider` unless a test explicitly opts into
-    `openrouter` via env vars.
-    """
-    from app.database import chromadb_client
-    from app.services import embedding_service
-
-    class _FakeEmbeddingModel:
-        def encode(self, text: str, normalize_embeddings: bool = True):
-            import numpy as np
-
-            return np.array([0.1, 0.2, 0.3])
-
-    async def fake_get_embedding_model() -> _FakeEmbeddingModel:
-        return _FakeEmbeddingModel()
-
-    async def fake_upsert_embedding(product_id, embedding, metadata, document) -> None:
+    async def fake_index_product(product_id, text, metadata) -> None:
         return None
 
-    async def fake_query_similar(embedding, n_results=10, where=None) -> dict:
-        return {"ids": [[]], "distances": [[]]}
+    async def fake_search(query, n_results=10, where=None) -> dict:
+        return {"ids": [], "distances": [], "metadatas": [], "documents": []}
 
-    monkeypatch.setattr(embedding_service, "get_embedding_model", fake_get_embedding_model)
-    monkeypatch.setattr(chromadb_client, "upsert_embedding", fake_upsert_embedding)
-    monkeypatch.setattr(chromadb_client, "query_similar", fake_query_similar)
+    async def fake_delete_product(product_id) -> None:
+        return None
+
+    async def fake_generate_text(prompt: str) -> str:
+        return (
+            "Descrição gerada automaticamente em modo offline (nenhum provedor de LLM "
+            "configurado ou disponível no momento). Edite este texto livremente antes "
+            "de aprovar o produto."
+        )
+
+    async def fake_generate_description(prompt: str) -> str:
+        return await fake_generate_text(prompt)
+
+    monkeypatch.setattr(embedding_reranking_client, "index_product", fake_index_product)
+    monkeypatch.setattr(embedding_reranking_client, "search", fake_search)
+    monkeypatch.setattr(vector_db_client, "delete_product", fake_delete_product)
+    monkeypatch.setattr(llm_provider_client, "generate_text", fake_generate_text)
+    monkeypatch.setattr(llm_provider_client, "generate_description", fake_generate_description)

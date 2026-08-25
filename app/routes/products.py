@@ -3,6 +3,8 @@ from fastapi import APIRouter, Query, status
 from app.schemas.product import (
     DescriptionConfirmRequest,
     DescriptionGenerateResponse,
+    ProductBatchRequest,
+    ProductBatchResponse,
     ProductCreate,
     ProductListResponse,
     ProductResponse,
@@ -16,6 +18,15 @@ router = APIRouter(prefix="/products", tags=["products"])
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(payload: ProductCreate) -> ProductResponse:
     return await product_service.create_product(payload)
+
+
+@router.post("/batch", response_model=ProductBatchResponse)
+async def get_products_batch(payload: ProductBatchRequest) -> ProductBatchResponse:
+    """Hydrates a batch of product ids. Meant for callers (e.g. a future
+    frontend/gateway) that got thin `product_id` + `score` results from
+    vector-db's recommendation endpoints and need the full product data."""
+    items = await product_service.get_products_batch(payload.ids)
+    return ProductBatchResponse(items=items)
 
 
 @router.get("", response_model=ProductListResponse)

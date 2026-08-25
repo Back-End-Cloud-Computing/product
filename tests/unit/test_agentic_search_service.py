@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.exceptions import AgenticSearchError
-from app.services import agentic_search_service, llm_service
+from app.services import agentic_search_service
 
 
 def _make_doc(doc_id: str, name: str) -> dict:
@@ -21,10 +21,10 @@ def _make_doc(doc_id: str, name: str) -> dict:
     }
 
 
-class FakeLLMProvider(llm_service.LLMProvider):
+class FakeLLMProviderClient:
     """Returns canned JSON based on which prompt is being asked (strategy,
     evaluation or justification), so the agentic loop can be driven
-    deterministically without a real LLM."""
+    deterministically without a real llm-provider call."""
 
     def __init__(self, strategy_responses=None, evaluation_responses=None, justification_response="[]"):
         self._strategies = list(strategy_responses or [])
@@ -76,14 +76,14 @@ async def test_loop_dynamically_switches_strategy_and_stops_when_satisfied(monke
     monkeypatch.setattr(agentic_search_service.search_service, "search_lexical", fake_lexical)
     monkeypatch.setattr(agentic_search_service.search_service, "search_semantic", fake_semantic)
 
-    provider = FakeLLMProvider(
+    provider = FakeLLMProviderClient(
         strategy_responses=['{"strategy": "lexical"}', '{"strategy": "semantic"}'],
         evaluation_responses=[
             '{"coverage": 0.5, "satisfied": false, "next_query": "tenis leve"}',
             '{"coverage": 1.0, "satisfied": true, "next_query": null}',
         ],
     )
-    monkeypatch.setattr(agentic_search_service.llm_service, "get_llm_provider", lambda: provider)
+    monkeypatch.setattr(agentic_search_service.llm_provider_client, "generate_text", provider.generate_text)
 
     events = [event async for event in agentic_search_service.buscar_agentica("tenis", limit=5, max_iterations=5)]
 
@@ -104,9 +104,9 @@ async def test_loop_dynamically_switches_strategy_and_stops_when_satisfied(monke
 
 
 async def test_falls_back_to_hybrid_and_heuristic_when_llm_is_unavailable(monkeypatch):
-    """Settings default llm_provider to "mock", so get_llm_provider() naturally
-    resolves to MockLLMProvider (fixed, non-JSON text). Strategy/evaluation
-    decisions must degrade gracefully instead of breaking the search."""
+    """The conftest-level fake `llm_provider_client.generate_text` returns fixed,
+    non-JSON text (simulating an offline/mock llm-provider). Strategy/
+    evaluation decisions must degrade gracefully instead of breaking the search."""
     doc_a = _make_doc("a", "Produto A")
 
     async def fake_lexical(query, limit=10):

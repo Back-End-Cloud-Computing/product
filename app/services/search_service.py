@@ -3,8 +3,8 @@ from typing import Any
 
 from bson import ObjectId
 
-from app.database import chromadb_client, mongodb
-from app.services import embedding_service
+from app.clients import embedding_reranking_client
+from app.database import mongodb
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,12 @@ async def search_lexical(query: str, limit: int = 10) -> list[tuple[dict[str, An
 
 
 async def search_semantic(query: str, limit: int = 10) -> list[tuple[dict[str, Any], float]]:
-    """Meaning-based search: embeds the query and finds nearest product vectors
-    in ChromaDB, so results can match even without exact keyword overlap."""
-    embedding = await embedding_service.generate_embedding(query)
-    chroma_results = await chromadb_client.query_similar(embedding, n_results=limit)
-
-    ids = chroma_results.get("ids", [[]])[0]
-    distances = chroma_results.get("distances", [[]])[0]
+    """Meaning-based search: asks embedding-reranking to embed the query and run
+    the KNN search on vector-db, so results can match even without exact
+    keyword overlap."""
+    results = await embedding_reranking_client.search(query, n_results=limit)
+    ids = results.get("ids", [])
+    distances = results.get("distances", [])
     if not ids:
         return []
 
