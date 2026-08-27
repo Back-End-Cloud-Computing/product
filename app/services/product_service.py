@@ -70,8 +70,9 @@ def build_summary_prompt(
         attributes_text = "nenhum atributo adicional informado"
 
     return (
-        "Resuma o produto abaixo em frases curtas e objetivas, em português, "
-        "para uso interno de indexação e busca. Não use marketing, apenas os fatos.\n\n"
+        "Resuma o produto abaixo em frases curtas e sobre o produto, em português,"
+        "para uso interno de indexação e busca. Não use marketing, apenas os fatos."
+        "resuma em no maximo dez palavras\n\n"
         f"Nome: {name}\n"
         f"Marca: {brand}\n"
         f"Categoria: {category}\n"
