@@ -48,7 +48,13 @@ def patch_external_dependencies(monkeypatch):
     async def fake_index_product(product_id, text, metadata) -> None:
         return None
 
-    async def fake_search(query, n_results=10, where=None) -> dict:
+    async def fake_embed_query(query: str) -> list:
+        return [0.0]
+
+    async def fake_rerank(query: str, passages: list) -> list:
+        return [{"passage": passage, "score": 1.0 - i * 0.01, "index": i} for i, passage in enumerate(passages)]
+
+    async def fake_vector_search(embedding, n_results=10, where=None) -> dict:
         return {"ids": [], "distances": [], "metadatas": [], "documents": []}
 
     async def fake_delete_product(product_id) -> None:
@@ -61,6 +67,8 @@ def patch_external_dependencies(monkeypatch):
         )
 
     monkeypatch.setattr(embedding_reranking_client, "index_product", fake_index_product)
-    monkeypatch.setattr(embedding_reranking_client, "search", fake_search)
+    monkeypatch.setattr(embedding_reranking_client, "embed_query", fake_embed_query)
+    monkeypatch.setattr(embedding_reranking_client, "rerank", fake_rerank)
+    monkeypatch.setattr(vector_db_client, "search", fake_vector_search)
     monkeypatch.setattr(vector_db_client, "delete_product", fake_delete_product)
     monkeypatch.setattr(llm_provider_client, "generate_text", fake_generate_text)

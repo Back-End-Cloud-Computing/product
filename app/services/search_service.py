@@ -3,7 +3,7 @@ from typing import Any
 
 from bson import ObjectId
 
-from app.clients import embedding_reranking_client
+from app.clients import embedding_reranking_client, vector_db_client
 from app.database import mongodb
 
 logger = logging.getLogger(__name__)
@@ -28,14 +28,19 @@ async def search_lexical(query: str, limit: int = 10) -> list[tuple[dict[str, An
 
 
 async def search_semantic(query: str, limit: int = 10) -> list[tuple[dict[str, Any], float]]:
-    """Meaning-based search: asks embedding-reranking to embed the query and run
-    the KNN search on vector-db, so results can match even without exact
-    keyword overlap."""
-    results = await embedding_reranking_client.search(query, n_results=limit)
-    ids = results.get("ids", [])
-    distances = results.get("distances", [])
+    """Meaning-based search: embeds the query, runs the KNN search directly on
+    vector-db, then reranks the candidates via embedding-reranking so results
+    can match even without exact keyword overlap and come back in a more
+    relevant order than raw vector distance alone."""
+    embedding = await embedding_reranking_client.embed_query(query)
+    vector_result = await vector_db_client.search(embedding, n_results=limit)
+    ids = vector_result.get("ids", [])
+    documents = vector_result.get("documents", [])
     if not ids:
         return []
+
+    ranked = await embedding_reranking_client.rerank(query, documents)
+    ordered_ids_scores = [(ids[item["index"]], item["score"]) for item in ranked]
 
     collection = mongodb.get_products_collection()
     docs_by_id: dict[str, dict[str, Any]] = {}
@@ -43,9 +48,8 @@ async def search_semantic(query: str, limit: int = 10) -> list[tuple[dict[str, A
         docs_by_id[str(doc["_id"])] = doc
 
     results: list[tuple[dict[str, Any], float]] = []
-    for product_id, distance in zip(ids, distances):
+    for product_id, score in ordered_ids_scores:
         doc = docs_by_id.get(product_id)
         if doc:
-            similarity = max(0.0, 1.0 - distance)
-            results.append((doc, similarity))
+            results.append((doc, score))
     return results

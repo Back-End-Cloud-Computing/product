@@ -41,19 +41,77 @@ async def test_index_product_raises_embedding_generation_error_on_failure():
             await embedding_reranking_client.index_product("1", "text", {})
 
 
-async def test_search_returns_embedding_reranking_response():
+async def test_embed_query_returns_first_embedding():
     settings = get_settings()
     with respx.mock(base_url=settings.embedding_reranking_base_url) as mock:
-        route = mock.post("/search").mock(
+        route = mock.post("/embed").mock(
+            return_value=httpx.Response(200, json={"embeddings": [[0.1, 0.2]], "model": "m", "count": 1})
+        )
+        result = await embedding_reranking_client.embed_query("tenis de corrida")
+
+    assert result == [0.1, 0.2]
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"texts": ["tenis de corrida"]}
+
+
+async def test_embed_query_raises_embedding_generation_error_on_failure():
+    settings = get_settings()
+    with respx.mock(base_url=settings.embedding_reranking_base_url) as mock:
+        mock.post("/embed").mock(return_value=httpx.Response(500))
+        with pytest.raises(EmbeddingGenerationError):
+            await embedding_reranking_client.embed_query("query")
+
+
+async def test_rerank_returns_results_list():
+    settings = get_settings()
+    with respx.mock(base_url=settings.embedding_reranking_base_url) as mock:
+        route = mock.post("/rerank").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "results": [{"passage": "doc", "score": 0.9, "index": 0}],
+                    "model": "m",
+                    "query": "query",
+                },
+            )
+        )
+        result = await embedding_reranking_client.rerank("query", ["doc"])
+
+    assert result == [{"passage": "doc", "score": 0.9, "index": 0}]
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"query": "query", "passages": ["doc"]}
+
+
+async def test_rerank_raises_embedding_generation_error_on_failure():
+    settings = get_settings()
+    with respx.mock(base_url=settings.embedding_reranking_base_url) as mock:
+        mock.post("/rerank").mock(return_value=httpx.Response(500))
+        with pytest.raises(EmbeddingGenerationError):
+            await embedding_reranking_client.rerank("query", ["doc"])
+
+
+async def test_vector_db_search_returns_response_with_products_collection():
+    settings = get_settings()
+    with respx.mock(base_url=settings.vector_db_base_url) as mock:
+        route = mock.post("/vector_db/search").mock(
             return_value=httpx.Response(
                 200, json={"ids": ["1"], "distances": [0.1], "metadatas": [{}], "documents": ["doc"]}
             )
         )
-        result = await embedding_reranking_client.search("query", n_results=5)
+        result = await vector_db_client.search([0.1, 0.2], n_results=5)
 
     assert result["ids"] == ["1"]
     body = json.loads(route.calls.last.request.content)
     assert body["collection_name"] == "products"
+    assert body["embedding"] == [0.1, 0.2]
+
+
+async def test_vector_db_search_raises_embedding_generation_error_on_failure():
+    settings = get_settings()
+    with respx.mock(base_url=settings.vector_db_base_url) as mock:
+        mock.post("/vector_db/search").mock(return_value=httpx.Response(500))
+        with pytest.raises(EmbeddingGenerationError):
+            await vector_db_client.search([0.1, 0.2])
 
 
 async def test_vector_db_delete_is_best_effort_and_does_not_raise():
