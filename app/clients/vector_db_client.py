@@ -6,6 +6,8 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+PRODUCTS_COLLECTION = "products"
+
 
 async def delete_product(product_id: str) -> None:
     """Best-effort delete of the product's vector record, called directly on
@@ -19,7 +21,7 @@ async def delete_product(product_id: str) -> None:
         async with httpx.AsyncClient(timeout=settings.vector_db_timeout_seconds) as client:
             response = await client.post(
                 f"{settings.vector_db_base_url}/vector_db/delete",
-                json={"ids": [product_id]},
+                json={"collection_name": PRODUCTS_COLLECTION, "ids": [product_id]},
             )
             response.raise_for_status()
     except httpx.HTTPError as exc:

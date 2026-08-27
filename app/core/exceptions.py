@@ -14,12 +14,6 @@ class DuplicateSkuError(ProductServiceError):
         super().__init__(f"Product with SKU '{sku}' already exists")
 
 
-class DescriptionNotApprovedError(ProductServiceError):
-    def __init__(self, product_id: str):
-        self.product_id = product_id
-        super().__init__(f"Product '{product_id}' does not have an approved description yet")
-
-
 class LLMProviderError(ProductServiceError):
     """Raised when the external LLM provider fails, times out, or is not configured."""
 

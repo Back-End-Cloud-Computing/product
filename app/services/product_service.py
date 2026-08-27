@@ -6,13 +6,14 @@ from pymongo.errors import DuplicateKeyError
 
 from app.clients import embedding_reranking_client, llm_provider_client, vector_db_client
 from app.core.exceptions import (
-    DescriptionNotApprovedError,
     DuplicateSkuError,
+    EmbeddingGenerationError,
+    LLMProviderError,
     ProductNotFoundError,
 )
 from app.core.mongo_utils import to_object_id
 from app.database import mongodb
-from app.models.product import DescriptionStatus, EmbeddingSyncStatus, ProductDocument
+from app.models.product import ProductDocument
 from app.schemas.product import ProductCreate, ProductResponse, ProductUpdate
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,28 @@ def build_description_prompt(
     )
 
 
+def build_summary_prompt(
+    name: str,
+    brand: str,
+    category: str,
+    description: str,
+    attributes: dict[str, Any],
+) -> str:
+    attributes_text = ", ".join(f"{key}: {value}" for key, value in attributes.items())
+    if not attributes_text:
+        attributes_text = "nenhum atributo adicional informado"
+
+    return (
+        "Resuma o produto abaixo em frases curtas e objetivas, em português, "
+        "para uso interno de indexação e busca. Não use marketing, apenas os fatos.\n\n"
+        f"Nome: {name}\n"
+        f"Marca: {brand}\n"
+        f"Categoria: {category}\n"
+        f"Descrição: {description}\n"
+        f"Atributos: {attributes_text}\n"
+    )
+
+
 def document_to_response(doc: dict[str, Any]) -> ProductResponse:
     return ProductResponse(
         id=str(doc["_id"]),
@@ -67,10 +90,8 @@ def document_to_response(doc: dict[str, Any]) -> ProductResponse:
         category=doc["category"],
         attributes=doc.get("attributes", {}),
         description=doc.get("description"),
-        suggested_description=doc.get("suggested_description"),
-        description_status=doc.get("description_status", DescriptionStatus.PENDING),
-        embedding_status=doc.get("embedding_status", EmbeddingSyncStatus.PENDING),
-        embedding_sync_error=doc.get("embedding_sync_error"),
+        summary=doc.get("summary"),
+        error=doc.get("error"),
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
     )
@@ -85,6 +106,23 @@ async def create_product(payload: ProductCreate) -> ProductResponse:
     if await collection.find_one({"sku": payload.sku}):
         raise DuplicateSkuError(payload.sku)
 
+    description = payload.description
+    error: str | None = None
+
+    if payload.generate_description_with_ai:
+        prompt = build_description_prompt(
+            name=payload.name,
+            brand=payload.brand,
+            category=payload.category,
+            sale_type=payload.sale_type,
+            attributes=payload.attributes,
+        )
+        try:
+            description = await llm_provider_client.generate_text(prompt)
+        except LLMProviderError as exc:
+            logger.error("Description generation failed for sku %s: %s", payload.sku, exc)
+            error = type(exc).__name__
+
     document = ProductDocument(
         name=payload.name,
         sku=payload.sku,
@@ -92,15 +130,72 @@ async def create_product(payload: ProductCreate) -> ProductResponse:
         brand=payload.brand,
         category=payload.category,
         attributes=payload.attributes,
+        description=description,
+        error=error,
     )
     try:
         result = await collection.insert_one(document.to_mongo())
     except DuplicateKeyError as exc:
         raise DuplicateSkuError(payload.sku) from exc
 
+    product_id = str(result.inserted_id)
+    logger.info("Product created: id=%s sku=%s", product_id, payload.sku)
+
+    if description and not error:
+        await _finish_product_pipeline(product_id, payload, description, collection)
+
     created = await collection.find_one({"_id": result.inserted_id})
-    logger.info("Product created: id=%s sku=%s", result.inserted_id, payload.sku)
     return document_to_response(created)
+
+
+async def _finish_product_pipeline(
+    product_id: str,
+    payload: ProductCreate,
+    description: str,
+    collection: Any,
+) -> None:
+    """Post-creation pipeline: generate the summary via LLM, then index the
+    product (including its description) into the vector-db. Best-effort: the
+    first failure is recorded on `error` and the pipeline stops there; the
+    product document created earlier is never rolled back, and there is no
+    retry endpoint."""
+    summary_prompt = build_summary_prompt(
+        name=payload.name,
+        brand=payload.brand,
+        category=payload.category,
+        description=description,
+        attributes=payload.attributes,
+    )
+    try:
+        summary = await llm_provider_client.generate_text(summary_prompt)
+    except LLMProviderError as exc:
+        logger.error("Summary generation failed for product %s: %s", product_id, exc)
+        await collection.update_one({"_id": to_object_id(product_id)}, {"$set": {"error": type(exc).__name__}})
+        return
+
+    await collection.update_one({"_id": to_object_id(product_id)}, {"$set": {"summary": summary}})
+
+    metadata = {
+        "sku": payload.sku,
+        "name": payload.name,
+        "brand": payload.brand,
+        "category": payload.category,
+        "sale_type": payload.sale_type,
+        "description": description,
+        "summary": summary,
+    }
+    semantic_text = build_semantic_text(
+        name=payload.name,
+        brand=payload.brand,
+        category=payload.category,
+        description=description,
+        attributes=payload.attributes,
+    )
+    try:
+        await embedding_reranking_client.index_product(product_id, semantic_text, metadata)
+    except EmbeddingGenerationError as exc:
+        logger.error("Vector indexing failed for product %s: %s", product_id, exc)
+        await collection.update_one({"_id": to_object_id(product_id)}, {"$set": {"error": type(exc).__name__}})
 
 
 async def get_product(product_id: str) -> ProductResponse:
@@ -168,105 +263,3 @@ async def delete_product(product_id: str) -> None:
     if result.deleted_count == 0:
         raise ProductNotFoundError(product_id)
     await vector_db_client.delete_product(product_id)
-
-
-async def generate_description_suggestion(product_id: str) -> ProductResponse:
-    """Ask the LLM for a draft description. Nothing is persisted as final content
-    here: the suggestion is stored under `suggested_description` until the user
-    reviews/edits it and confirms via `confirm_description`."""
-    product = await get_product(product_id)
-    prompt = build_description_prompt(
-        name=product.name,
-        brand=product.brand,
-        category=product.category,
-        sale_type=product.sale_type,
-        attributes=product.attributes,
-    )
-    suggested_text = await llm_provider_client.generate_description(prompt)
-
-    collection = mongodb.get_products_collection()
-    updated = await collection.find_one_and_update(
-        {"_id": to_object_id(product_id)},
-        {
-            "$set": {
-                "suggested_description": suggested_text,
-                "description_status": DescriptionStatus.SUGGESTED,
-                "updated_at": datetime.now(timezone.utc),
-            }
-        },
-        return_document=True,
-    )
-    logger.info("Description suggested for product %s", product_id)
-    return document_to_response(updated)
-
-
-async def confirm_description(product_id: str, final_description: str) -> ProductResponse:
-    """Persist the user-approved description via partial update (PATCH), then
-    trigger embedding generation + ChromaDB sync as described in the product flow."""
-    collection = mongodb.get_products_collection()
-    updated = await collection.find_one_and_update(
-        {"_id": to_object_id(product_id)},
-        {
-            "$set": {
-                "description": final_description,
-                "description_status": DescriptionStatus.APPROVED,
-                "updated_at": datetime.now(timezone.utc),
-            }
-        },
-        return_document=True,
-    )
-    if not updated:
-        raise ProductNotFoundError(product_id)
-
-    response = document_to_response(updated)
-    await sync_embedding(response)
-    return await get_product(product_id)
-
-
-async def sync_embedding(product: ProductResponse) -> None:
-    """Trigger embedding-reranking to (re)generate the embedding and index it
-    into the vector-db.
-
-    MongoDB is the source of truth and has already been updated by the caller
-    before this runs: a failure here must never roll back or fail the parent
-    request. Instead, the failure is recorded on `embedding_status`/
-    `embedding_sync_error` so it is visible to clients and can be retried via
-    `retry_embedding_sync`, giving eventual consistency between the two stores.
-    """
-    collection = mongodb.get_products_collection()
-    try:
-        text = build_semantic_text(
-            name=product.name,
-            brand=product.brand,
-            category=product.category,
-            description=product.description or "",
-            attributes=product.attributes,
-        )
-        await embedding_reranking_client.index_product(
-            product_id=product.id,
-            text=text,
-            metadata={
-                "sku": product.sku,
-                "brand": product.brand,
-                "category": product.category,
-                "sale_type": product.sale_type,
-            },
-        )
-        await collection.update_one(
-            {"_id": to_object_id(product.id)},
-            {"$set": {"embedding_status": EmbeddingSyncStatus.SYNCED, "embedding_sync_error": None}},
-        )
-    except Exception as exc:  # noqa: BLE001 - any failure degrades to a recorded sync error
-        logger.error("Embedding sync failed for product %s: %s", product.id, exc)
-        await collection.update_one(
-            {"_id": to_object_id(product.id)},
-            {"$set": {"embedding_status": EmbeddingSyncStatus.FAILED, "embedding_sync_error": str(exc)}},
-        )
-
-
-async def retry_embedding_sync(product_id: str) -> ProductResponse:
-    product = await get_product(product_id)
-    if product.description_status != DescriptionStatus.APPROVED:
-        raise DescriptionNotApprovedError(product_id)
-    await sync_embedding(product)
-    return await get_product(product_id)

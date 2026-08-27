@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Query, status
 
 from app.schemas.product import (
-    DescriptionConfirmRequest,
-    DescriptionGenerateResponse,
     ProductBatchRequest,
     ProductBatchResponse,
     ProductCreate,
@@ -53,28 +51,3 @@ async def update_product(product_id: str, payload: ProductUpdate) -> ProductResp
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product(product_id: str) -> None:
     await product_service.delete_product(product_id)
-
-
-@router.post("/{product_id}/description/generate", response_model=DescriptionGenerateResponse)
-async def generate_description(product_id: str) -> DescriptionGenerateResponse:
-    """Ask the LLM for a description suggestion. This is a preview only —
-    nothing is persisted as the final description until the client PATCHes
-    `/products/{product_id}/description` with the (possibly edited) text."""
-    product = await product_service.generate_description_suggestion(product_id)
-    return DescriptionGenerateResponse(
-        product_id=product.id,
-        suggested_description=product.suggested_description or "",
-        description_status=product.description_status,
-    )
-
-
-@router.patch("/{product_id}/description", response_model=ProductResponse)
-async def confirm_description(product_id: str, payload: DescriptionConfirmRequest) -> ProductResponse:
-    """Persist the final, user-approved description and trigger embedding sync."""
-    return await product_service.confirm_description(product_id, payload.description)
-
-
-@router.post("/{product_id}/embedding/sync", response_model=ProductResponse)
-async def retry_embedding_sync(product_id: str) -> ProductResponse:
-    """Manually retry a failed MongoDB -> ChromaDB embedding sync."""
-    return await product_service.retry_embedding_sync(product_id)

@@ -1,9 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from app.models.product import DescriptionStatus, EmbeddingSyncStatus
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProductCreate(BaseModel):
@@ -17,6 +15,30 @@ class ProductCreate(BaseModel):
         description="Additional free-form metadata (color, voltage, fuel type, etc.)",
         examples=[{"cor": "preto", "memoria": "128GB"}],
     )
+    generate_description_with_ai: bool = Field(
+        default=False,
+        description=(
+            "Se true, a descrição é gerada automaticamente pela LLM a partir dos "
+            "demais campos e 'description' deve ser omitido. Se false, 'description' "
+            "é obrigatório."
+        ),
+    )
+    description: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=5000,
+        description="Obrigatório quando generate_description_with_ai=false; deve ser omitido quando true.",
+        examples=["Smartphone com tela de 6.5 polegadas e 128GB de armazenamento."],
+    )
+
+    @model_validator(mode="after")
+    def _validate_description_source(self) -> "ProductCreate":
+        if self.generate_description_with_ai:
+            if self.description is not None:
+                raise ValueError("description must be omitted when generate_description_with_ai is true")
+        elif not self.description:
+            raise ValueError("description is required when generate_description_with_ai is false")
+        return self
 
 
 class ProductUpdate(BaseModel):
@@ -40,10 +62,8 @@ class ProductResponse(BaseModel):
     category: str
     attributes: dict[str, Any]
     description: str | None
-    suggested_description: str | None
-    description_status: DescriptionStatus
-    embedding_status: EmbeddingSyncStatus
-    embedding_sync_error: str | None = None
+    summary: str | None
+    error: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -61,15 +81,3 @@ class ProductBatchRequest(BaseModel):
 
 class ProductBatchResponse(BaseModel):
     items: list[ProductResponse]
-
-
-class DescriptionGenerateResponse(BaseModel):
-    """A suggestion only: nothing is persisted until the user confirms it via PATCH."""
-
-    product_id: str
-    suggested_description: str
-    description_status: DescriptionStatus
-
-
-class DescriptionConfirmRequest(BaseModel):
-    description: str = Field(..., min_length=1, max_length=5000)

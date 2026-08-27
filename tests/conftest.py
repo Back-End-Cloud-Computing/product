@@ -57,15 +57,10 @@ def patch_external_dependencies(monkeypatch):
     async def fake_generate_text(prompt: str) -> str:
         return (
             "Descrição gerada automaticamente em modo offline (nenhum provedor de LLM "
-            "configurado ou disponível no momento). Edite este texto livremente antes "
-            "de aprovar o produto."
+            "configurado ou disponível no momento)."
         )
-
-    async def fake_generate_description(prompt: str) -> str:
-        return await fake_generate_text(prompt)
 
     monkeypatch.setattr(embedding_reranking_client, "index_product", fake_index_product)
     monkeypatch.setattr(embedding_reranking_client, "search", fake_search)
     monkeypatch.setattr(vector_db_client, "delete_product", fake_delete_product)
     monkeypatch.setattr(llm_provider_client, "generate_text", fake_generate_text)
-    monkeypatch.setattr(llm_provider_client, "generate_description", fake_generate_description)

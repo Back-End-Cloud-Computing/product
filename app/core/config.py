@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     vector_db_timeout_seconds: int = 10
 
     llm_provider_base_url: str = "http://localhost:8004"
-    llm_provider_ws_url: str = "ws://localhost:8004"
     llm_provider_timeout_seconds: int = 60
 
     agentic_search_max_iterations: int = 3

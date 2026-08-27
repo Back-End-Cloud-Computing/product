@@ -6,7 +6,6 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.exceptions import (
     AgenticSearchError,
-    DescriptionNotApprovedError,
     DuplicateSkuError,
     EmbeddingGenerationError,
     LLMProviderError,
@@ -46,10 +45,6 @@ def create_app() -> FastAPI:
     @application.exception_handler(DuplicateSkuError)
     async def duplicate_sku_handler(request: Request, exc: DuplicateSkuError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc), "error_type": "duplicate_sku"})
-
-    @application.exception_handler(DescriptionNotApprovedError)
-    async def description_not_approved_handler(request: Request, exc: DescriptionNotApprovedError) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": str(exc), "error_type": "description_not_approved"})
 
     @application.exception_handler(LLMProviderError)
     async def llm_provider_error_handler(request: Request, exc: LLMProviderError) -> JSONResponse:
