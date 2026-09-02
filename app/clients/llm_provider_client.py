@@ -5,6 +5,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.exceptions import LLMProviderError
+from app.core.http_retry import post_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,7 @@ async def generate_text(prompt: str) -> str:
     payload: dict[str, Any] = {"prompt": prompt}
     try:
         async with httpx.AsyncClient(timeout=settings.llm_provider_timeout_seconds) as client:
-            response = await client.post(f"{settings.llm_provider_base_url}/generate", json=payload)
-            response.raise_for_status()
+            response = await post_with_retry(client, f"{settings.llm_provider_base_url}/generate", payload)
             return response.json()["text"]
     except (httpx.HTTPError, KeyError) as exc:
         logger.error("llm-provider /generate failed: %s", exc)

@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
+from app.core.exceptions import EmbeddingGenerationError
 from app.schemas.agentic_search import AgenticSearchRequest, AgenticSearchResponse
 from app.schemas.search import SearchResponse, SearchResultItem
 from app.services import agentic_search_service, product_service, search_service
@@ -23,9 +24,17 @@ async def search_lexical(q: str = Query(..., min_length=1), limit: int = Query(1
 
 @router.get("/semantic", response_model=SearchResponse)
 async def search_semantic(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=50)) -> SearchResponse:
-    results = await search_service.search_semantic(q, limit=limit)
+   
+    try:
+        results = await search_service.search_semantic(q, limit=limit)
+        match_type = "semantic"
+    except EmbeddingGenerationError as exc:
+        logger.warning("Semantic search unavailable (%s); falling back to lexical for query '%s'", exc, q)
+        results = await search_service.search_lexical(q, limit=limit)
+        match_type = "lexical_fallback"
+
     items = [
-        SearchResultItem(product=product_service.document_to_response(doc), score=score, match_type="semantic")
+        SearchResultItem(product=product_service.document_to_response(doc), score=score, match_type=match_type)
         for doc, score in results
     ]
     return SearchResponse(query=q, results=items, total=len(items))

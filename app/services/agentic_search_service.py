@@ -6,7 +6,7 @@ from typing import Any, AsyncGenerator
 
 from app.clients import llm_provider_client
 from app.core.config import get_settings
-from app.core.exceptions import AgenticSearchError, LLMProviderError
+from app.core.exceptions import AgenticSearchError, EmbeddingGenerationError, LLMProviderError
 from app.services import product_service, search_service
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,12 @@ async def _executar_estrategia(
     if strategy in ("lexical", "hybrid"):
         lexical_results = await search_service.search_lexical(query, limit=limit * 2)
     if strategy in ("semantic", "hybrid"):
-        semantic_results = await search_service.search_semantic(query, limit=limit * 2)
+        try:
+            semantic_results = await search_service.search_semantic(query, limit=limit * 2)
+        except EmbeddingGenerationError as exc:
+            logger.warning("Semantic search unavailable during agentic search (%s); degrading to lexical", exc)
+            if strategy == "semantic":
+                semantic_results = await search_service.search_lexical(query, limit=limit * 2)
     return lexical_results, semantic_results
 
 

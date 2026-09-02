@@ -5,6 +5,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.exceptions import EmbeddingGenerationError
+from app.core.http_retry import post_with_retry
 
 logger = logging.getLogger(__name__)
 PRODUCTS_COLLECTION = "products"
@@ -23,8 +24,7 @@ async def index_product(product_id: str, text: str, metadata: dict[str, Any]) ->
     }
     try:
         async with httpx.AsyncClient(timeout=settings.embedding_reranking_timeout_seconds) as client:
-            response = await client.post(f"{settings.embedding_reranking_base_url}/index", json=payload)
-            response.raise_for_status()
+            await post_with_retry(client, f"{settings.embedding_reranking_base_url}/index", payload)
     except httpx.HTTPError as exc:
         logger.error("embedding-reranking indexing failed for product %s: %s", product_id, exc)
         raise EmbeddingGenerationError(f"Failed to index product '{product_id}': {exc}") from exc
@@ -38,8 +38,9 @@ async def embed_query(query: str) -> list[float]:
     settings = get_settings()
     try:
         async with httpx.AsyncClient(timeout=settings.embedding_reranking_timeout_seconds) as client:
-            response = await client.post(f"{settings.embedding_reranking_base_url}/embed", json={"texts": [query]})
-            response.raise_for_status()
+            response = await post_with_retry(
+                client, f"{settings.embedding_reranking_base_url}/embed", {"texts": [query]}
+            )
             return response.json()["embeddings"][0]
     except (httpx.HTTPError, KeyError, IndexError) as exc:
         logger.error("embedding-reranking embed failed for query '%s': %s", query, exc)
@@ -53,8 +54,7 @@ async def rerank(query: str, passages: list[str]) -> list[dict[str, Any]]:
     payload = {"query": query, "passages": passages}
     try:
         async with httpx.AsyncClient(timeout=settings.embedding_reranking_timeout_seconds) as client:
-            response = await client.post(f"{settings.embedding_reranking_base_url}/rerank", json=payload)
-            response.raise_for_status()
+            response = await post_with_retry(client, f"{settings.embedding_reranking_base_url}/rerank", payload)
             return response.json()["results"]
     except (httpx.HTTPError, KeyError) as exc:
         logger.error("embedding-reranking rerank failed for query '%s': %s", query, exc)

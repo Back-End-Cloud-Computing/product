@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.core.exceptions import AgenticSearchError
+from app.core.exceptions import AgenticSearchError, EmbeddingGenerationError
 from app.services import agentic_search_service
 
 
@@ -158,6 +158,38 @@ async def test_max_iterations_is_capped_by_settings(monkeypatch):
     final = events[-1]
     assert final["type"] == "completed"
     assert final["iterations"] == 1
+
+
+async def test_pure_semantic_strategy_degrades_to_lexical_when_embedding_unavailable(monkeypatch):
+    """A "semantic"-only iteration must not blow up the whole search just
+    because embedding-reranking/vector-db are down - it should degrade to a
+    lexical lookup instead, same as the /search/semantic endpoint does."""
+    doc_a = _make_doc("a", "Produto A")
+
+    lexical_calls: list[str] = []
+
+    async def failing_semantic(query, limit=10):
+        raise EmbeddingGenerationError("embedding-reranking is down")
+
+    async def fake_lexical(query, limit=10):
+        lexical_calls.append(query)
+        return [(doc_a, 1.0)]
+
+    monkeypatch.setattr(agentic_search_service.search_service, "search_semantic", failing_semantic)
+    monkeypatch.setattr(agentic_search_service.search_service, "search_lexical", fake_lexical)
+
+    provider = FakeLLMProviderClient(
+        strategy_responses=['{"strategy": "semantic"}'],
+        evaluation_responses=['{"coverage": 1.0, "satisfied": true, "next_query": null}'],
+    )
+    monkeypatch.setattr(agentic_search_service.llm_provider_client, "generate_text", provider.generate_text)
+
+    events = [event async for event in agentic_search_service.buscar_agentica("produto", limit=5, max_iterations=3)]
+
+    final = events[-1]
+    assert final["type"] == "completed"
+    assert lexical_calls == ["produto"]
+    assert final["results"][0]["product"]["id"] == "a"
 
 
 async def test_sync_wrapper_raises_agentic_search_error_on_failure(monkeypatch):
