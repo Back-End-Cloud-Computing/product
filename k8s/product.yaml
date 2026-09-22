@@ -1,0 +1,82 @@
+# product-service no Kubernetes.
+#
+# Troque "joao2006" pela sua conta do Docker Hub se for publicar sob outra,
+# ou use a imagem local se o cluster compartilhar o daemon do Docker (caso do
+# OrbStack/minikube com driver docker).
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: product-api
+  template:
+    metadata:
+      labels:
+        app: product-api
+    spec:
+      containers:
+        - name: product-api
+          image: joao2006/product:1.0.0
+          # Imagem publicada no Docker Hub. IfNotPresent evita baixar de novo
+          # quando o cluster ja tem a mesma tag em cache local.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            # Toda dependencia e alcancada pelo NOME DO SERVICE, nunca pelo IP
+            # do Pod - e o que permite escalar/recriar qualquer uma delas sem
+            # reconfigurar o product-service.
+            - name: MONGODB_URI
+              value: mongodb://mongodb:27017
+            - name: MONGODB_DATABASE
+              value: product_service
+            - name: AUTH_SERVICE_BASE_URL
+              value: http://authorization:8081
+            - name: EMBEDDING_RERANKING_BASE_URL
+              value: http://embedding-reranking:8003
+            - name: VECTOR_DB_BASE_URL
+              value: http://vector-db:8002
+            - name: LLM_PROVIDER_BASE_URL
+              value: http://llm-provider:8004
+          # /health nao exige token e nao depende de Mongo/vector-db/etc
+          # estarem no ar - so confirma que o processo Uvicorn respondeu.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+---
+# Endereco estavel do product-service. Nada dentro do cluster GANJJ chama
+# product-api por Service - ele e a porta de entrada do sistema - mas o
+# Service e o mesmo jeito de expor as tres replicas para fora (via
+# port-forward ou Ingress).
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-api
+spec:
+  type: ClusterIP
+  selector:
+    app: product-api
+  ports:
+    - port: 8000
+      targetPort: 8000

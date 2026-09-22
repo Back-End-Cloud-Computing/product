@@ -1,0 +1,50 @@
+# Banco do product-service dentro do cluster.
+#
+# Uma replica so: o Deployment aqui serve para manter o Pod de pe e dar a ele
+# um endereco estavel, nao para escalar. Sem volume persistente - se o Pod for
+# recriado, o banco comeca vazio. Para o laboratorio isso basta.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          readinessProbe:
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+---
+# Endereco estavel do Mongo. product-service usa MONGODB_URI=mongodb://mongodb:27017
+# - e este nome, "mongodb", que precisa bater com o Service abaixo.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+spec:
+  type: ClusterIP
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
