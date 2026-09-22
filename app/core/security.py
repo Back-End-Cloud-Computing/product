@@ -17,7 +17,8 @@ import jwt
 import tenacity
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from fastapi import Header
+from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError
@@ -29,6 +30,19 @@ ACCESS_TOKEN_TYPE = "access"
 
 _public_key: RSAPublicKey | None = None
 _current_token: ContextVar[str | None] = ContextVar("current_token", default=None)
+
+# `auto_error=False`: a missing/malformed header should fall through to our
+# own AuthenticationError (401, same JSON envelope as every other error in
+# this service) instead of HTTPBearer's default 403. Declaring the scheme
+# this way - instead of reading the header by hand - is what makes FastAPI
+# register a proper OpenAPI security scheme, which is what makes Swagger UI
+# show the Authorize (padlock) button for this service.
+bearer_scheme = HTTPBearer(
+    scheme_name="bearerAuth",
+    bearerFormat="JWT",
+    description="Access token emitido pelo authorization service (POST /auth/login).",
+    auto_error=False,
+)
 
 
 def _is_transient_fetch_error(exc: BaseException) -> bool:
@@ -94,14 +108,16 @@ def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-async def get_current_user(authorization: str | None = Header(default=None)) -> CurrentUser:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> CurrentUser:
     """FastAPI dependency: validates the bearer token locally against the
     cached public key and returns the caller's identity. Wired once, for the
     whole router, in `main.py` - individual routes don't declare it."""
-    if not authorization or not authorization.startswith("Bearer "):
+    if credentials is None:
         raise AuthenticationError("Missing or malformed Authorization header. Use: Bearer <token>.")
 
-    token = authorization.removeprefix("Bearer ").strip()
+    token = credentials.credentials
 
     if _public_key is None:
         # Only reachable if load_public_key() never ran - normally startup

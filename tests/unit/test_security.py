@@ -3,6 +3,7 @@ import time
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.security import HTTPAuthorizationCredentials
 
 from app.core import security
 from app.core.exceptions import AuthenticationError
@@ -39,23 +40,28 @@ def _make_token(private_key, *, typ="access", issuer=security.ISSUER, exp_delta=
     return jwt.encode(claims, private_key, algorithm="RS256")
 
 
+def _credentials(token: str) -> HTTPAuthorizationCredentials:
+    """What FastAPI's `HTTPBearer` dependency hands `get_current_user` once it
+    has already parsed a well-formed `Authorization: Bearer <token>` header.
+    A missing/malformed header, or any other scheme, resolves to `None`
+    instead (see `auto_error=False` on `security.bearer_scheme`) - that path
+    is exercised end-to-end in `tests/integration/test_auth.py`, against the
+    real HTTP layer, rather than unit-tested here."""
+    return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+
 async def test_valid_token_is_accepted(keypair):
     private_key, _ = keypair
     token = _make_token(private_key)
 
-    user = await security.get_current_user(authorization=f"Bearer {token}")
+    user = await security.get_current_user(credentials=_credentials(token))
 
     assert user == security.CurrentUser(id=USER_ID, email="teste@ganjj.com", role="CLIENTE")
 
 
-async def test_missing_header_is_rejected():
+async def test_missing_credentials_is_rejected():
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=None)
-
-
-async def test_header_without_bearer_prefix_is_rejected():
-    with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization="Token abc123")
+        await security.get_current_user(credentials=None)
 
 
 async def test_token_signed_by_another_key_is_rejected():
@@ -63,7 +69,7 @@ async def test_token_signed_by_another_key_is_rejected():
     token = _make_token(other_private_key)
 
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=f"Bearer {token}")
+        await security.get_current_user(credentials=_credentials(token))
 
 
 async def test_expired_token_is_rejected(keypair):
@@ -71,7 +77,7 @@ async def test_expired_token_is_rejected(keypair):
     token = _make_token(private_key, exp_delta=-10)
 
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=f"Bearer {token}")
+        await security.get_current_user(credentials=_credentials(token))
 
 
 async def test_refresh_token_is_rejected_on_a_protected_route(keypair):
@@ -79,7 +85,7 @@ async def test_refresh_token_is_rejected_on_a_protected_route(keypair):
     token = _make_token(private_key, typ="refresh")
 
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=f"Bearer {token}")
+        await security.get_current_user(credentials=_credentials(token))
 
 
 async def test_wrong_issuer_is_rejected(keypair):
@@ -87,7 +93,7 @@ async def test_wrong_issuer_is_rejected(keypair):
     token = _make_token(private_key, issuer="someone-else")
 
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=f"Bearer {token}")
+        await security.get_current_user(credentials=_credentials(token))
 
 
 async def test_token_missing_required_claim_is_rejected(keypair):
@@ -95,7 +101,7 @@ async def test_token_missing_required_claim_is_rejected(keypair):
     token = _make_token(private_key, omit_claims=["role"])
 
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=f"Bearer {token}")
+        await security.get_current_user(credentials=_credentials(token))
 
 
 async def test_no_public_key_loaded_is_rejected(monkeypatch, keypair):
@@ -104,14 +110,14 @@ async def test_no_public_key_loaded_is_rejected(monkeypatch, keypair):
     token = _make_token(private_key)
 
     with pytest.raises(AuthenticationError):
-        await security.get_current_user(authorization=f"Bearer {token}")
+        await security.get_current_user(credentials=_credentials(token))
 
 
 async def test_valid_token_makes_auth_headers_forward_it(keypair):
     private_key, _ = keypair
     token = _make_token(private_key)
 
-    await security.get_current_user(authorization=f"Bearer {token}")
+    await security.get_current_user(credentials=_credentials(token))
 
     assert security.auth_headers() == {"Authorization": f"Bearer {token}"}
 
