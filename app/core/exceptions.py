@@ -25,3 +25,8 @@ class EmbeddingGenerationError(ProductServiceError):
 
 class AgenticSearchError(ProductServiceError):
     """Raised when the agentic search loop fails to produce a result."""
+
+
+class AuthenticationError(ProductServiceError):
+    """Raised when the incoming request's bearer token is missing, malformed, or
+    fails local verification against the authorization service's public key."""

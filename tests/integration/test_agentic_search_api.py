@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
+from app.core.security import get_current_user
 from app.services import search_service
+from tests.conftest import FAKE_USER
 
 
 def _make_doc(doc_id: str, name: str) -> dict:
@@ -68,13 +70,17 @@ async def test_agentic_search_ws_streams_progress_then_completed(mongo_database,
 
     from app.main import app
 
-    client = TestClient(app)
-    with client.websocket_connect("/search/agentic_search/ws") as websocket:
-        websocket.send_text(json.dumps({"query": "produto teste", "limit": 5}))
+    app.dependency_overrides[get_current_user] = lambda: FAKE_USER
+    try:
+        client = TestClient(app)
+        with client.websocket_connect("/search/agentic_search/ws") as websocket:
+            websocket.send_text(json.dumps({"query": "produto teste", "limit": 5}))
 
-        events = [websocket.receive_json()]
-        while events[-1]["type"] not in ("completed", "error"):
-            events.append(websocket.receive_json())
+            events = [websocket.receive_json()]
+            while events[-1]["type"] not in ("completed", "error"):
+                events.append(websocket.receive_json())
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
     assert events[0]["type"] == "iteration_start"
     assert any(event["type"] == "iteration_result" for event in events)

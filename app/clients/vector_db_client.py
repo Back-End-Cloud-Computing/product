@@ -6,6 +6,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.exceptions import EmbeddingGenerationError
 from app.core.http_retry import post_with_retry
+from app.core.security import auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ async def search(embedding: list[float], n_results: int = 10, where: dict[str, A
         "where": where,
     }
     try:
-        async with httpx.AsyncClient(timeout=settings.vector_db_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.vector_db_timeout_seconds, headers=auth_headers()) as client:
             response = await post_with_retry(client, f"{settings.vector_db_base_url}/vector_db/search", payload)
             return response.json()
     except httpx.HTTPError as exc:
@@ -43,7 +44,7 @@ async def delete_product(product_id: str) -> None:
     happened by the time this runs."""
     settings = get_settings()
     try:
-        async with httpx.AsyncClient(timeout=settings.vector_db_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.vector_db_timeout_seconds, headers=auth_headers()) as client:
             await post_with_retry(
                 client,
                 f"{settings.vector_db_base_url}/vector_db/delete",

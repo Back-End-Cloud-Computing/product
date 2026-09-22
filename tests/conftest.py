@@ -3,7 +3,10 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
 
+from app.core.security import CurrentUser, get_current_user
 from app.database import mongodb as mongodb_module
+
+FAKE_USER = CurrentUser(id="11111111-1111-1111-1111-111111111111", email="teste@ganjj.com", role="CLIENTE")
 
 
 @pytest_asyncio.fixture
@@ -30,11 +33,17 @@ async def mongo_database(monkeypatch):
 
 @pytest_asyncio.fixture
 async def api_client(mongo_database):
+    """Authenticated API client: overrides `get_current_user` so existing
+    tests don't need to carry a real token. Auth enforcement itself is
+    covered separately in `tests/integration/test_auth.py`, against the
+    real dependency."""
     from app.main import app
 
+    app.dependency_overrides[get_current_user] = lambda: FAKE_USER
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture(autouse=True)

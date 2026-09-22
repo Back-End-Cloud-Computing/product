@@ -7,6 +7,7 @@ import respx
 from app.clients import embedding_reranking_client, llm_provider_client, vector_db_client
 from app.core.config import get_settings
 from app.core.exceptions import EmbeddingGenerationError, LLMProviderError
+from app.core.security import _current_token
 
 
 @pytest.fixture(autouse=True)
@@ -142,3 +143,23 @@ async def test_llm_provider_generate_text_raises_llm_provider_error_on_failure()
         mock.post("/generate").mock(return_value=httpx.Response(502))
         with pytest.raises(LLMProviderError):
             await llm_provider_client.generate_text("prompt")
+
+
+async def test_outgoing_calls_forward_the_incoming_bearer_token():
+    """The token that authenticated this request into product-service must be
+    forwarded as-is to the downstream services it calls on the caller's
+    behalf - see app.core.security.auth_headers."""
+    token = _current_token.set("the-caller-token")
+    try:
+        settings = get_settings()
+        with respx.mock(base_url=settings.vector_db_base_url) as mock:
+            route = mock.post("/vector_db/search").mock(
+                return_value=httpx.Response(
+                    200, json={"ids": [], "distances": [], "metadatas": [], "documents": []}
+                )
+            )
+            await vector_db_client.search([0.1, 0.2])
+
+        assert route.calls.last.request.headers["authorization"] == "Bearer the-caller-token"
+    finally:
+        _current_token.reset(token)

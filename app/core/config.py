@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_database: str = "product_service"
 
+    auth_service_base_url: str = "http://localhost:8081"
+
     embedding_reranking_base_url: str = "http://localhost:8003"
     embedding_reranking_timeout_seconds: int = 30
 
