@@ -1,0 +1,24 @@
+# Entrada HTTP externa para o product-api.
+#
+# Mesmo padrão do authorization/k8s/ingress.yaml: roteamento por HOST (não por
+# path), então /products, /docs, /health etc. continuam funcionando sem
+# prefixo, do jeito que o código já espera.
+#
+# O Ingress aponta para o SERVICE, nunca para um Pod.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: product-api-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: product.ganjj.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: product-api
+                port:
+                  number: 8000

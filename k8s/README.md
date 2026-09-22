@@ -96,6 +96,37 @@ kubectl apply -f k8s/product.yaml
 kubectl port-forward service/product-api 8000:8000
 ```
 
+## Acessar via Ingress (sem port-forward por serviço)
+
+```bash
+minikube addons enable ingress
+kubectl apply -f k8s/ingress.yaml
+kubectl wait --namespace ingress-nginx --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller --timeout=120s
+```
+
+Testar pelo próprio NGINX Ingress Controller (host `product.ganjj.local`, sem
+DNS nenhum configurado — só o header `Host`):
+
+```bash
+IP=$(minikube ip)
+PORT=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+curl -H "Host: product.ganjj.local" http://$IP:$PORT/docs
+```
+
+**No WSL2** (driver docker roda numa rede Docker interna à VM, que o Windows
+não alcança direto): encaminhe **uma porta só, para o Ingress Controller**
+— não para o `product-api` diretamente. Quem roteia continua sendo o Ingress,
+pelo `Host`:
+
+```bash
+kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8080:80
+```
+
+E no hosts do **Windows** (`C:\Windows\System32\drivers\etc\hosts`, como
+administrador): `127.0.0.1  product.ganjj.local`. Depois, no navegador:
+http://product.ganjj.local:8080/docs
+
 ## Sobre a imagem
 
 Publicada em [joao2006/product](https://hub.docker.com/r/joao2006/product).
