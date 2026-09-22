@@ -1,0 +1,27 @@
+services:
+  product-api:
+    build: ./product
+    container_name: product-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./product/.env
+    depends_on:
+      - mongodb
+      - embedding-reranking
+      - vector-db
+      - llm-provider
+    networks:
+      - ganjj-net
+
+  mongodb:
+    image: mongo:7
+    container_name: product-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - ganjj-net
