@@ -36,7 +36,7 @@ O segredo das rotas `/internal` (estoque, chamadas pelo `order`) não fica no
 manifest: crie o Secret antes, com o mesmo valor configurado no `order`:
 
 ```bash
-kubectl create secret generic product-internal --from-literal=internal-secret='<segredo>'
+kubectl create secret generic product-secrets --from-literal=INTERNAL_SECRET='<segredo>'
 ```
 
 ```bash

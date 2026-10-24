@@ -1,0 +1,23 @@
+{{- if .Values.ingress.enabled }}
+# Lista de permissão: só as rotas públicas chegam de fora. /internal (estoque,
+# chamado pelo order) e /metrics ficam sem rota. Mesmo desenho do k8s/ingress.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: product-api-ingress
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          {{- range $path, $type := dict "/products" "Prefix" "/search" "Prefix" "/docs" "Prefix" "/health" "Exact" "/openapi.json" "Exact" }}
+          - path: {{ $path }}
+            pathType: {{ $type }}
+            backend:
+              service:
+                name: product-api
+                port:
+                  number: 8000
+          {{- end }}
+{{- end }}

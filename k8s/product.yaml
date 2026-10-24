@@ -53,8 +53,8 @@ spec:
             - name: INTERNAL_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: product-internal
-                  key: internal-secret
+                  name: product-secrets
+                  key: INTERNAL_SECRET
           # /health nao exige token e nao depende de Mongo/vector-db/etc
           # estarem no ar - so confirma que o processo Uvicorn respondeu.
           readinessProbe:

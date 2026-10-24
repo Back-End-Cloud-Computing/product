@@ -1,0 +1,9 @@
+Antes do install, crie o Secret (chave INTERNAL_SECRET): veja k8s/README.md.
+O product busca a chave pública no authorization ao subir: instale-o antes.
+
+Teste:
+  kubectl port-forward svc/product-api 8000:8000
+  curl localhost:8000/health
+{{- if .Values.ingress.enabled }}
+  curl -H "Host: {{ .Values.ingress.host }}" http://<ip-do-ingress>/docs
+{{- end }}

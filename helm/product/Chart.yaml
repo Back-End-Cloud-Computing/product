@@ -1,0 +1,6 @@
+apiVersion: v2
+name: product
+description: Serviço de Produto do GANJJ (FastAPI) com MongoDB opcional
+type: application
+version: 0.1.0
+appVersion: "1.1.0"

@@ -1,0 +1,41 @@
+image:
+  repository: joao2006/product
+  tag: ""            # vazio usa o appVersion do Chart.yaml
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+# Secret criado fora do chart (kubectl create secret, ver k8s/README.md).
+# Chave esperada: INTERNAL_SECRET (rotas /internal de estoque, chamadas pelo order).
+existingSecret: product-secrets
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: product.ganjj.local
+
+# Variáveis não sensíveis, iguais às do k8s/product.yaml. As dependências são
+# alcançadas pelo nome do Service, cada uma instalada pelo seu próprio chart.
+config:
+  APP_ENV: production
+  LOG_LEVEL: INFO
+  MONGODB_URI: mongodb://mongodb:27017
+  MONGODB_DATABASE: product_service
+  AUTH_SERVICE_BASE_URL: http://authorization:8081
+  EMBEDDING_RERANKING_BASE_URL: http://embedding-reranking:8003
+  VECTOR_DB_BASE_URL: http://vector-db:8002
+  LLM_PROVIDER_BASE_URL: http://llm-provider:8004
+
+# Em produção real o banco seria gerenciado: com enabled=false o chart só
+# sobe a aplicação e config.MONGODB_URI aponta para o banco externo.
+mongodb:
+  enabled: true
+  image: mongo:7
