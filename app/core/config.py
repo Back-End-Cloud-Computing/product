@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     agentic_search_max_iterations: int = 3
 
+    # Shared secret for service-to-service calls on /internal (header
+    # `x-internal-secret`). Empty means every internal call is refused.
+    internal_secret: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

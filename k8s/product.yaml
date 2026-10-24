@@ -42,6 +42,13 @@ spec:
               value: http://vector-db:8002
             - name: LLM_PROVIDER_BASE_URL
               value: http://llm-provider:8004
+            # Segredo das rotas /internal (estoque), lido de um Secret criado
+            # fora do manifest para nao versionar o valor - ver k8s/README.md.
+            - name: INTERNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: product-internal
+                  key: internal-secret
           # /health nao exige token e nao depende de Mongo/vector-db/etc
           # estarem no ar - so confirma que o processo Uvicorn respondeu.
           readinessProbe:

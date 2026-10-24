@@ -10,6 +10,8 @@ class ProductCreate(BaseModel):
     sale_type: str = Field(..., min_length=1, max_length=50, examples=["eletronico"])
     brand: str = Field(..., min_length=1, max_length=100, examples=["MarcaX"])
     category: str = Field(..., min_length=1, max_length=100, examples=["celulares"])
+    price: float = Field(..., ge=0, description="Unit list price in BRL.", examples=[1999.90])
+    stock: int = Field(default=0, ge=0, description="Units available for sale.", examples=[25])
     attributes: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional free-form metadata (color, voltage, fuel type, etc.)",
@@ -48,6 +50,8 @@ class ProductUpdate(BaseModel):
     sale_type: str | None = Field(default=None, min_length=1, max_length=50)
     brand: str | None = Field(default=None, min_length=1, max_length=100)
     category: str | None = Field(default=None, min_length=1, max_length=100)
+    price: float | None = Field(default=None, ge=0)
+    stock: int | None = Field(default=None, ge=0, description="Sets the absolute stock level (restock).")
     attributes: dict[str, Any] | None = None
 
 
@@ -60,6 +64,9 @@ class ProductResponse(BaseModel):
     sale_type: str
     brand: str
     category: str
+    price: float | None
+    """`None` only for products created before price existed."""
+    stock: int
     attributes: dict[str, Any]
     description: str | None
     summary: str | None

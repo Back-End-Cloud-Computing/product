@@ -8,6 +8,7 @@ def _payload(sku: str) -> dict:
         "sale_type": "eletronico",
         "brand": "Marca",
         "category": "categoria",
+        "price": 10.0,
         "description": f"Descricao {sku}",
     }
 

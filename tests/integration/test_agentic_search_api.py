@@ -21,6 +21,7 @@ def _make_doc(doc_id: str, name: str) -> dict:
         "sale_type": "eletronico",
         "brand": "Marca",
         "category": "categoria",
+        "price": 10.0,
         "attributes": {},
         "description": None,
         "created_at": datetime.now(timezone.utc),

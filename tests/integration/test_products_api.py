@@ -5,6 +5,7 @@ async def test_create_and_get_product(api_client):
         "sale_type": "eletronico",
         "brand": "MarcaA",
         "category": "celulares",
+        "price": 10.0,
         "attributes": {"cor": "preto", "memoria": "128GB"},
         "description": "Smartphone com tela grande.",
     }
@@ -32,6 +33,7 @@ async def test_create_product_with_ai_description(api_client):
         "sale_type": "eletronico",
         "brand": "MarcaB",
         "category": "notebooks",
+        "price": 10.0,
         "attributes": {"ram": "16GB"},
         "generate_description_with_ai": True,
     }
@@ -53,6 +55,7 @@ async def test_create_product_without_description_or_ai_flag_returns_422(api_cli
         "sale_type": "eletronico",
         "brand": "Marca",
         "category": "categoria",
+        "price": 10.0,
     }
     response = await api_client.post("/products", json=payload)
     assert response.status_code == 422
@@ -65,6 +68,7 @@ async def test_create_product_with_both_description_and_ai_flag_returns_422(api_
         "sale_type": "eletronico",
         "brand": "Marca",
         "category": "categoria",
+        "price": 10.0,
         "description": "Minha descricao",
         "generate_description_with_ai": True,
     }
@@ -79,6 +83,7 @@ async def test_create_product_with_duplicate_sku_returns_409(api_client):
         "sale_type": "eletronico",
         "brand": "Marca",
         "category": "categoria",
+        "price": 10.0,
         "description": "D",
     }
 
@@ -105,6 +110,7 @@ async def test_update_product_partial(api_client):
             "sale_type": "eletronico",
             "brand": "Marca",
             "category": "cat",
+            "price": 10.0,
             "description": "D",
         },
     )
@@ -125,6 +131,7 @@ async def test_delete_product(api_client):
             "sale_type": "eletronico",
             "brand": "Marca",
             "category": "cat",
+            "price": 10.0,
             "description": "D",
         },
     )
@@ -157,7 +164,7 @@ async def test_create_product_responds_before_pipeline_runs(api_client, monkeypa
     from app.main import app
 
     async def receive():
-        body = b'{"name": "P", "sku": "SKU-SLOW", "sale_type": "s", "brand": "b", "category": "c", "description": "d"}'
+        body = b'{"name": "P", "sku": "SKU-SLOW", "sale_type": "s", "brand": "b", "category": "c", "price": 1.0, "description": "d"}'
         return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(message):
@@ -183,3 +190,57 @@ async def test_create_product_responds_before_pipeline_runs(api_client, monkeypa
 
     assert sent_status == [201]
     assert pipeline_started.is_set()
+
+
+async def test_product_exposes_price_and_stock(api_client):
+    """shopping-cart reads `price` and `stock` straight from GET /products/{id}."""
+    create_response = await api_client.post(
+        "/products",
+        json={
+            "name": "Camiseta",
+            "sku": "SKU-PRICE",
+            "sale_type": "vestuario",
+            "brand": "GANJJ",
+            "category": "camisetas",
+            "price": 49.9,
+            "stock": 7,
+            "description": "Camiseta de algodao.",
+        },
+    )
+    assert create_response.status_code == 201
+
+    body = (await api_client.get(f"/products/{create_response.json()['id']}")).json()
+    assert body["price"] == 49.9
+    assert body["stock"] == 7
+
+
+async def test_create_product_without_price_returns_422(api_client):
+    response = await api_client.post(
+        "/products",
+        json={"name": "P", "sku": "SKU-NOPRICE", "sale_type": "s", "brand": "b", "category": "c", "description": "d"},
+    )
+    assert response.status_code == 422
+
+
+async def test_update_product_price_and_stock(api_client):
+    create_response = await api_client.post(
+        "/products",
+        json={
+            "name": "P",
+            "sku": "SKU-RESTOCK",
+            "sale_type": "s",
+            "brand": "b",
+            "category": "c",
+            "price": 10.0,
+            "description": "d",
+        },
+    )
+    assert create_response.json()["stock"] == 0
+
+    response = await api_client.patch(
+        f"/products/{create_response.json()['id']}", json={"price": 12.5, "stock": 30}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["price"] == 12.5
+    assert response.json()["stock"] == 30

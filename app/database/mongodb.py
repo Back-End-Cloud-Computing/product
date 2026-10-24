@@ -31,6 +31,9 @@ async def connect_to_mongo() -> None:
     mongodb.database = mongodb.client[settings.mongodb_database]
 
     await mongodb.database.products.create_index("sku", unique=True)
+    # Idempotency records for /internal stock operations; `_id` is the
+    # caller's Idempotency-Key, so uniqueness needs no extra index.
+    await mongodb.database.stock_operations.create_index("created_at")
     await mongodb.database.products.create_index(
         [("name", "text"), ("description", "text"), ("brand", "text"), ("category", "text")],
         name="product_text_index",
@@ -49,3 +52,9 @@ def get_products_collection() -> AsyncCollection:
     if mongodb.database is None:
         raise RuntimeError("MongoDB connection has not been initialized")
     return mongodb.database.products
+
+
+def get_stock_operations_collection() -> AsyncCollection:
+    if mongodb.database is None:
+        raise RuntimeError("MongoDB connection has not been initialized")
+    return mongodb.database.stock_operations

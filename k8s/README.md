@@ -27,6 +27,13 @@ Este serviço depende de `authorization`, `vector-db`, `embedding-reranking` e
 `llm-provider` já estarem no cluster (cada um com seu próprio `k8s/`, no seu
 próprio repositório):
 
+O segredo das rotas `/internal` (estoque, chamadas pelo `order`) não fica no
+manifest: crie o Secret antes, com o mesmo valor configurado no `order`:
+
+```bash
+kubectl create secret generic product-internal --from-literal=internal-secret='<segredo>'
+```
+
 ```bash
 kubectl apply -f k8s/mongodb.yaml
 kubectl apply -f k8s/product.yaml

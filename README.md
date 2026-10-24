@@ -64,7 +64,7 @@ Interactive docs (Swagger UI) are always available at **`/docs`** once the servi
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/products` | Create a product from its metadata (name, SKU, sale type, brand, category, attributes). Answers `201` as soon as it is stored; AI description, summary and vector indexing run in the background — `GET /products/{id}` shows `description`/`summary` once done, or `error` if a step failed. A repeated SKU answers `409`. |
+| `POST` | `/products` | Create a product from its metadata (name, SKU, sale type, brand, category, `price`, `stock`, attributes). Answers `201` as soon as it is stored; AI description, summary and vector indexing run in the background — `GET /products/{id}` shows `description`/`summary` once done, or `error` if a step failed. A repeated SKU answers `409`. |
 | `GET` | `/products` | List products, paginated (`skip`, `limit`), filterable by `category`/`brand`. |
 | `GET` | `/products/{id}` | Fetch a single product. |
 | `PATCH` | `/products/{id}` | Partially update product metadata. |
@@ -82,6 +82,25 @@ Interactive docs (Swagger UI) are always available at **`/docs`** once the servi
 | `GET` | `/search/semantic?q=` | Meaning-based search via `embedding-reranking` — matches even without keyword overlap. |
 | `POST` | `/search/agentic_search` | Agentic search: an LLM decides per iteration between lexical, semantic, or both, until coverage is sufficient or a max iteration count is hit. |
 | `WS` | `/search/agentic_search/ws` | Same agentic search, streaming each iteration's progress before the final result. |
+
+### Internal (service-to-service)
+
+Called by `order` during checkout. Authenticated by the `x-internal-secret` header (env `INTERNAL_SECRET`) instead of a user JWT, and not exposed on the Ingress.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/internal/products/{id}/stock/decrement` | Take `quantity` units out of stock. |
+| `POST` | `/internal/products/{id}/stock/restore` | Put `quantity` units back (saga compensation). |
+
+Both take the `Idempotency-Key` header and a body `{"quantity": 2, "reason": "...", "reference_id": "...", "compensates_operation_id": "..."}` (only `quantity` is required), and answer `{"operation_id", "product_id", "remaining_stock"}`. `{id}` is the product's string id, the same one `GET /products/{id}` uses. Repeating an `Idempotency-Key` with the same request returns the original result without touching stock again.
+
+| HTTP | `error_type` | Meaning |
+|---|---|---|
+| 401 | `authentication_error` | Missing or wrong `x-internal-secret` |
+| 404 | `product_not_found` | Unknown product id |
+| 409 | `insufficient_stock` | Not enough stock; the body carries `available_stock` |
+| 409 | `operation_conflict` | `Idempotency-Key` reused for a different request |
+| 422 | — | Missing `Idempotency-Key` or `quantity` not positive |
 
 ### Health
 

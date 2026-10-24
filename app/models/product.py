@@ -17,6 +17,8 @@ class ProductDocument(BaseModel):
     sale_type: str
     brand: str
     category: str
+    price: float
+    stock: int = 0
     attributes: dict[str, Any] = Field(default_factory=dict)
 
     description: str | None = None

@@ -20,6 +20,7 @@ async def test_create_product_with_own_description(mongo_database):
         sale_type="eletronico",
         brand="MarcaA",
         category="categoria",
+        price=10.0,
         attributes={"cor": "preto"},
         description="Descricao fornecida pelo usuario.",
     )
@@ -38,6 +39,7 @@ async def test_create_product_with_ai_description(mongo_database):
         sale_type="eletronico",
         brand="MarcaB",
         category="notebooks",
+        price=10.0,
         generate_description_with_ai=True,
     )
     product = await _create_and_run_pipeline(payload)
@@ -49,7 +51,7 @@ async def test_create_product_with_ai_description(mongo_database):
 
 async def test_create_product_with_duplicate_sku_raises(mongo_database):
     payload = ProductCreate(
-        name="A", sku="SKU-DUP", sale_type="eletronico", brand="B", category="C", description="D"
+        name="A", sku="SKU-DUP", sale_type="eletronico", brand="B", category="C", price=10.0, description="D"
     )
     await product_service.create_product(payload)
 
@@ -64,7 +66,7 @@ async def test_get_missing_product_raises_not_found(mongo_database):
 
 async def test_update_product_partial(mongo_database):
     created = await product_service.create_product(
-        ProductCreate(name="A", sku="SKU-200", sale_type="eletronico", brand="B", category="C", description="D")
+        ProductCreate(name="A", sku="SKU-200", sale_type="eletronico", brand="B", category="C", price=10.0, description="D")
     )
 
     updated = await product_service.update_product(created.id, ProductUpdate(brand="NovaMarca"))
@@ -83,7 +85,7 @@ async def test_ai_description_failure_is_recorded_and_pipeline_stops(mongo_datab
 
     created = await _create_and_run_pipeline(
         ProductCreate(
-            name="A", sku="SKU-300", sale_type="eletronico", brand="B", category="C", generate_description_with_ai=True
+            name="A", sku="SKU-300", sale_type="eletronico", brand="B", category="C", price=10.0, generate_description_with_ai=True
         )
     )
 
@@ -101,7 +103,7 @@ async def test_summary_failure_is_recorded_but_product_and_description_persist(m
     monkeypatch.setattr(llm_provider_client, "generate_text", broken_generate_text)
 
     created = await _create_and_run_pipeline(
-        ProductCreate(name="A", sku="SKU-400", sale_type="eletronico", brand="B", category="C", description="D")
+        ProductCreate(name="A", sku="SKU-400", sale_type="eletronico", brand="B", category="C", price=10.0, description="D")
     )
 
     assert created.description == "D"
@@ -118,7 +120,7 @@ async def test_indexing_failure_is_recorded_not_raised(mongo_database, monkeypat
     monkeypatch.setattr(embedding_reranking_client, "index_product", broken_index_product)
 
     created = await _create_and_run_pipeline(
-        ProductCreate(name="A", sku="SKU-500", sale_type="eletronico", brand="B", category="C", description="D")
+        ProductCreate(name="A", sku="SKU-500", sale_type="eletronico", brand="B", category="C", price=10.0, description="D")
     )
 
     assert created.description == "D"
@@ -137,7 +139,7 @@ async def test_create_product_returns_before_calling_llm_or_indexing(mongo_datab
 
     created = await product_service.create_product(
         ProductCreate(
-            name="A", sku="SKU-600", sale_type="eletronico", brand="B", category="C", generate_description_with_ai=True
+            name="A", sku="SKU-600", sale_type="eletronico", brand="B", category="C", price=10.0, generate_description_with_ai=True
         )
     )
 

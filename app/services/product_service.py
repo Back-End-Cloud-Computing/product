@@ -89,6 +89,8 @@ def document_to_response(doc: dict[str, Any]) -> ProductResponse:
         sale_type=doc["sale_type"],
         brand=doc["brand"],
         category=doc["category"],
+        price=doc.get("price"),
+        stock=doc.get("stock", 0),
         attributes=doc.get("attributes", {}),
         description=doc.get("description"),
         summary=doc.get("summary"),
@@ -117,6 +119,8 @@ async def create_product(payload: ProductCreate) -> ProductResponse:
         sale_type=payload.sale_type,
         brand=payload.brand,
         category=payload.category,
+        price=payload.price,
+        stock=payload.stock,
         attributes=payload.attributes,
         description=payload.description,
     )

@@ -8,6 +8,7 @@ per-request call to `authorization`. See
 full rationale behind this design.
 """
 
+import hmac
 import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ import jwt
 import tenacity
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
@@ -139,3 +140,14 @@ async def get_current_user(
 
     _current_token.set(token)
     return user
+
+
+async def require_internal_secret(
+    x_internal_secret: str | None = Header(default=None, alias="x-internal-secret"),
+) -> None:
+    """FastAPI dependency for the /internal routes: service-to-service calls
+    carry a shared secret instead of a user token. With no secret configured
+    every call is refused, so a missing env var never opens the routes."""
+    expected = get_settings().internal_secret
+    if not expected or x_internal_secret is None or not hmac.compare_digest(x_internal_secret, expected):
+        raise AuthenticationError("Missing or invalid x-internal-secret header.")

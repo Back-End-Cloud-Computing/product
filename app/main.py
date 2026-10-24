@@ -9,13 +9,15 @@ from app.core.exceptions import (
     AuthenticationError,
     DuplicateSkuError,
     EmbeddingGenerationError,
+    InsufficientStockError,
     LLMProviderError,
     ProductNotFoundError,
+    StockOperationConflictError,
 )
 from app.core.logging import configure_logging
 from app.core.security import get_current_user, load_public_key
 from app.database import mongodb
-from app.routes import api_router
+from app.routes import api_router, internal
 
 
 @asynccontextmanager
@@ -40,6 +42,7 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(api_router, dependencies=[Depends(get_current_user)])
+    application.include_router(internal.router)
 
     @application.exception_handler(AuthenticationError)
     async def authentication_error_handler(request: Request, exc: AuthenticationError) -> JSONResponse:
@@ -52,6 +55,17 @@ def create_app() -> FastAPI:
     @application.exception_handler(DuplicateSkuError)
     async def duplicate_sku_handler(request: Request, exc: DuplicateSkuError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc), "error_type": "duplicate_sku"})
+
+    @application.exception_handler(InsufficientStockError)
+    async def insufficient_stock_handler(request: Request, exc: InsufficientStockError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": str(exc), "error_type": "insufficient_stock", "available_stock": exc.available_stock},
+        )
+
+    @application.exception_handler(StockOperationConflictError)
+    async def stock_operation_conflict_handler(request: Request, exc: StockOperationConflictError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc), "error_type": "operation_conflict"})
 
     @application.exception_handler(LLMProviderError)
     async def llm_provider_error_handler(request: Request, exc: LLMProviderError) -> JSONResponse:

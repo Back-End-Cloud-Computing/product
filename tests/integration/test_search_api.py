@@ -36,6 +36,7 @@ async def test_semantic_search_falls_back_to_lexical_when_embedding_unavailable(
         "sale_type": "eletronico",
         "brand": "Marca",
         "category": "categoria",
+        "price": 10.0,
         "attributes": {},
         "description": None,
         "created_at": datetime.now(timezone.utc),
