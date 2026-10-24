@@ -78,10 +78,9 @@ spec:
               memory: "256Mi"
 
 ---
-# Endereco estavel do product-service. Nada dentro do cluster GANJJ chama
-# product-api por Service - ele e a porta de entrada do sistema - mas o
-# Service e o mesmo jeito de expor as tres replicas para fora (via
-# port-forward ou Ingress).
+# Endereco estavel e canonico do product-service: product-api:8000. E por
+# ele que api-gateway, shopping-cart e order chamam o produto dentro do
+# cluster, e e para ele que o Ingress e o port-forward apontam.
 apiVersion: v1
 kind: Service
 metadata:

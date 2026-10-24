@@ -4,6 +4,11 @@ Sobe o Mongo e três réplicas do product-service, com Service Discovery entre
 eles e as dependências do GANJJ (`authorization`, `vector-db`,
 `embedding-reranking`, `llm-provider`).
 
+**Endereço canônico: `http://product-api:8000`** — nome do Service e porta,
+iguais no Kubernetes e no `docker compose`. É o endereço que quem consome o
+product (`api-gateway`, `shopping-cart`, `order`) deve configurar; não existe
+Service `product` nem porta `3002`.
+
 ```
 Service product-api :8000
           |
