@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
         - name: product-api
-          image: joao2006/product:1.0.0
+          image: joao2006/product:1.1.0
           # Imagem publicada no Docker Hub. IfNotPresent evita baixar de novo
           # quando o cluster ja tem a mesma tag em cache local.
           imagePullPolicy: IfNotPresent
