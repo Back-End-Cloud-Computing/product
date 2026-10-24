@@ -1,27 +1,139 @@
+# Sobe o product-service com tudo de que ele depende, a partir de um clone
+# isolado deste repositório:
+#
+#   cp .env.example .env
+#   docker compose up -d
+#
+# O product é construído do código local. As dependências vêm prontas:
+#   - vector-db, embedding-reranking e llm-provider: imagens do Docker Hub;
+#   - authorization: construído direto do repositório no GitHub, porque a
+#     imagem publicada dele só existe para arm64. Sem JWT_*_KEY_PATH ele gera
+#     um par RSA temporário a cada subida (só para desenvolvimento).
+#
+# Ordem de subida: oracle-auth -> authorization -> serviços Python. Todos os
+# serviços Python buscam a chave pública em authorization:8081 no startup e
+# abortam sem ela, por isso esperam o authorization ficar healthy.
+
+x-depende-do-auth: &depende-do-auth
+  authorization:
+    condition: service_healthy
+
 services:
   product-api:
-    build: ./product
-    container_name: product-api
+    build: .
     restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
-      - ./product/.env
+      - .env
     depends_on:
-      - mongodb
-      - embedding-reranking
-      - vector-db
-      - llm-provider
-    networks:
-      - ganjj-net
+      <<: *depende-do-auth
+      mongodb:
+        condition: service_started
+      embedding-reranking:
+        condition: service_started
+      vector-db:
+        condition: service_started
+      llm-provider:
+        condition: service_started
 
   mongodb:
     image: mongo:7
-    container_name: product-mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    networks:
-      - ganjj-net
+
+  # --- authorization: emite os tokens (login em http://localhost:8081) ---
+  oracle-auth:
+    image: gvenzl/oracle-free:23-slim
+    restart: unless-stopped
+    environment:
+      ORACLE_PASSWORD: oracle
+      APP_USER: ganjj_auth
+      APP_USER_PASSWORD: ganjj_auth
+    volumes:
+      - oracle_auth_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  authorization:
+    build: https://github.com/Back-End-Cloud-Computing/authorization.git#main
+    restart: unless-stopped
+    depends_on:
+      oracle-auth:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      DB_HOST: oracle-auth
+      DB_PORT: 1521
+      DB_NAME: FREEPDB1
+      DB_USER: ganjj_auth
+      DB_PASSWORD: ganjj_auth
+      JPA_DDL_AUTO: update
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@ganjj.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-adminSegura123}
+    ports:
+      - "8081:8081"
+    healthcheck:
+      # A imagem não tem curl: faz o GET pelo /dev/tcp do bash e só considera
+      # pronto quando /auth/public-key responde 200.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /auth/public-key HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # --- serviços de IA que o product orquestra ---
+  llm-provider:
+    image: joao2006/llm-provider:1.0.0
+    restart: unless-stopped
+    environment:
+      AUTH_SERVICE_BASE_URL: http://authorization:8081
+      # Sem chave do OpenRouter o llm-provider responde em modo mock.
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    depends_on:
+      <<: *depende-do-auth
+
+  embedding-reranking:
+    image: joao2006/embedding-reranking:1.0.0
+    restart: unless-stopped
+    environment:
+      AUTH_SERVICE_BASE_URL: http://authorization:8081
+      VECTOR_DB_BASE_URL: http://vector-db:8002
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    depends_on:
+      <<: *depende-do-auth
+      vector-db:
+        condition: service_started
+
+  vector-db:
+    image: joao2006/vector-db:1.0.0
+    restart: unless-stopped
+    environment:
+      AUTH_SERVICE_BASE_URL: http://authorization:8081
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+    depends_on:
+      <<: *depende-do-auth
+      chromadb:
+        condition: service_started
+
+  chromadb:
+    image: chromadb/chroma:0.5.20
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+
+volumes:
+  mongo_data:
+  oracle_auth_data:
+  chroma_data:
+  hf_cache:

@@ -111,21 +111,22 @@ Both take the `Idempotency-Key` header and a body `{"quantity": 2, "reason": "..
 
 ## Running with Docker
 
-This service is one of five containers orchestrated by the `docker-compose.yml` at the repo root (`product-api`, `vector-db`, `embedding-reranking`, `llm-provider`, `mongodb`, `chromadb`). From the repo root:
+From a clean clone of this repository:
 
 ```bash
-cp product/.env.example product/.env
-cp vector-db/.env.example vector-db/.env
-cp embedding-reranking/.env.example embedding-reranking/.env
-cp llm-provider/.env.example llm-provider/.env   # fill in OPENROUTER_API_KEY there if you want real LLM output
+cp .env.example .env   # set LLM_PROVIDER=openrouter and OPENROUTER_API_KEY for real LLM output
 docker compose up -d
 ```
 
+`docker-compose.yml` builds this service from the local code and brings up everything it depends on: MongoDB, `authorization` (+ Oracle, built straight from its GitHub repo), and `llm-provider`, `embedding-reranking`, `vector-db` (+ ChromaDB) from their Docker Hub images. The first `up` takes a few minutes: Oracle has to initialize and `authorization` is compiled.
+
 - API: `http://localhost:8000` (docs at `http://localhost:8000/docs`)
+- Tokens: `POST http://localhost:8081/auth/login` (default admin `admin@ganjj.com` / `adminSegura123`)
 - MongoDB: `localhost:27017`
 
 Notes:
-- If `llm-provider` has no `OPENROUTER_API_KEY` (or OpenRouter is unreachable), it automatically falls back to an offline mock — this service never hard-depends on the LLM being available.
+- `authorization` runs with a temporary RSA key pair here, regenerated on every restart: tokens stop being valid after it restarts.
+- Without `OPENROUTER_API_KEY`, `llm-provider` answers in mock mode — this service never hard-depends on the LLM being available.
 - `docker compose down` removes the containers but keeps the named volumes; add `-v` to wipe them too.
 
 ## Running locally without Docker
