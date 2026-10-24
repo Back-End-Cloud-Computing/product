@@ -107,6 +107,7 @@ Both take the `Idempotency-Key` header and a body `{"quantity": 2, "reason": "..
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Liveness check, also used by the Docker healthcheck. |
+| `GET` | `/metrics` | Prometheus metrics (request count, errors, latency per route). No token; not exposed on the Ingress. |
 
 ## Running with Docker
 

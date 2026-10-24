@@ -17,6 +17,12 @@ spec:
     metadata:
       labels:
         app: product-api
+      # Prometheus descobre o pod por estas anotacoes e raspa /metrics direto
+      # nele (o Ingress nao expoe /metrics).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: product-api
