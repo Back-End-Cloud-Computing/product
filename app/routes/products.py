@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, status
 
 from app.schemas.product import (
     ProductBatchRequest,
@@ -14,8 +14,13 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 
 @router.post("", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
-async def create_product(payload: ProductCreate) -> ProductResponse:
-    return await product_service.create_product(payload)
+async def create_product(payload: ProductCreate, background_tasks: BackgroundTasks) -> ProductResponse:
+    """Answers 201 as soon as the product is stored. AI description, summary
+    and vector indexing run after the response; poll `GET /products/{id}`
+    to see `description`/`summary` filled in, or `error` if a step failed."""
+    product = await product_service.create_product(payload)
+    background_tasks.add_task(product_service.run_post_creation_pipeline, product.id, payload)
+    return product
 
 
 @router.post("/batch", response_model=ProductBatchResponse)

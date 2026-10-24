@@ -14,12 +14,15 @@ async def test_create_and_get_product(api_client):
     body = create_response.json()
     assert body["sku"] == "SKU-001"
     assert body["description"] == "Smartphone com tela grande."
-    assert body["summary"]
-    assert body["error"] is None
+    # Summary and indexing run as a background task after the 201 is sent.
+    assert body["summary"] is None
 
     get_response = await api_client.get(f"/products/{body['id']}")
     assert get_response.status_code == 200
-    assert get_response.json()["name"] == "Smartphone X"
+    stored = get_response.json()
+    assert stored["name"] == "Smartphone X"
+    assert stored["summary"]
+    assert stored["error"] is None
 
 
 async def test_create_product_with_ai_description(api_client):
@@ -35,10 +38,12 @@ async def test_create_product_with_ai_description(api_client):
 
     response = await api_client.post("/products", json=payload)
     assert response.status_code == 201
-    body = response.json()
-    assert body["description"]
-    assert body["summary"]
-    assert body["error"] is None
+    assert response.json()["description"] is None
+
+    stored = (await api_client.get(f"/products/{response.json()['id']}")).json()
+    assert stored["description"]
+    assert stored["summary"]
+    assert stored["error"] is None
 
 
 async def test_create_product_without_description_or_ai_flag_returns_422(api_client):
@@ -130,3 +135,51 @@ async def test_delete_product(api_client):
 
     get_response = await api_client.get(f"/products/{product_id}")
     assert get_response.status_code == 404
+
+
+async def test_create_product_responds_before_pipeline_runs(api_client, monkeypatch):
+    """Regression for the gateway 504: the LLM/indexing steps must not hold the
+    POST response. Drives the ASGI app directly to observe the order of events:
+    the 201 headers must go out before the first LLM call starts."""
+    import asyncio
+
+    from app.clients import llm_provider_client
+
+    pipeline_started = asyncio.Event()
+
+    async def recording_generate_text(prompt: str) -> str:
+        pipeline_started.set()
+        return "Resumo."
+
+    monkeypatch.setattr(llm_provider_client, "generate_text", recording_generate_text)
+
+    sent_status: list[int] = []
+    from app.main import app
+
+    async def receive():
+        body = b'{"name": "P", "sku": "SKU-SLOW", "sale_type": "s", "brand": "b", "category": "c", "description": "d"}'
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            assert not pipeline_started.is_set()
+            sent_status.append(message["status"])
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/products",
+        "raw_path": b"/products",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json"), (b"host", b"test")],
+        "server": ("test", 80),
+        "client": ("test", 1234),
+    }
+    await app(scope, receive, send)
+
+    assert sent_status == [201]
+    assert pipeline_started.is_set()

@@ -99,6 +99,10 @@ def document_to_response(doc: dict[str, Any]) -> ProductResponse:
 
 
 async def create_product(payload: ProductCreate) -> ProductResponse:
+    """Persist the product and return right away. The slow LLM/indexing steps
+    live in `run_post_creation_pipeline`, which the route schedules as a
+    background task: running them inline took ~15 s and the gateway gives up
+    at 10 s, answering 504 for a product that had in fact been created."""
     collection = mongodb.get_products_collection()
 
     # Explicit pre-check keeps the error path testable/deterministic even against
@@ -107,8 +111,33 @@ async def create_product(payload: ProductCreate) -> ProductResponse:
     if await collection.find_one({"sku": payload.sku}):
         raise DuplicateSkuError(payload.sku)
 
+    document = ProductDocument(
+        name=payload.name,
+        sku=payload.sku,
+        sale_type=payload.sale_type,
+        brand=payload.brand,
+        category=payload.category,
+        attributes=payload.attributes,
+        description=payload.description,
+    )
+    try:
+        result = await collection.insert_one(document.to_mongo())
+    except DuplicateKeyError as exc:
+        raise DuplicateSkuError(payload.sku) from exc
+
+    logger.info("Product created: id=%s sku=%s", result.inserted_id, payload.sku)
+
+    created = await collection.find_one({"_id": result.inserted_id})
+    return document_to_response(created)
+
+
+async def run_post_creation_pipeline(product_id: str, payload: ProductCreate) -> None:
+    """Runs after the create response is sent: generate the description via
+    LLM when requested, then hand off to the summary + indexing steps. A failed
+    AI description is recorded on `error` and stops the pipeline, since there
+    is nothing to summarize or index without one."""
+    collection = mongodb.get_products_collection()
     description = payload.description
-    error: str | None = None
 
     if payload.generate_description_with_ai:
         prompt = build_description_prompt(
@@ -121,32 +150,12 @@ async def create_product(payload: ProductCreate) -> ProductResponse:
         try:
             description = await llm_provider_client.generate_text(prompt)
         except LLMProviderError as exc:
-            logger.error("Description generation failed for sku %s: %s", payload.sku, exc)
-            error = type(exc).__name__
+            logger.error("Description generation failed for product %s: %s", product_id, exc)
+            await collection.update_one({"_id": to_object_id(product_id)}, {"$set": {"error": type(exc).__name__}})
+            return
+        await collection.update_one({"_id": to_object_id(product_id)}, {"$set": {"description": description}})
 
-    document = ProductDocument(
-        name=payload.name,
-        sku=payload.sku,
-        sale_type=payload.sale_type,
-        brand=payload.brand,
-        category=payload.category,
-        attributes=payload.attributes,
-        description=description,
-        error=error,
-    )
-    try:
-        result = await collection.insert_one(document.to_mongo())
-    except DuplicateKeyError as exc:
-        raise DuplicateSkuError(payload.sku) from exc
-
-    product_id = str(result.inserted_id)
-    logger.info("Product created: id=%s sku=%s", product_id, payload.sku)
-
-    if description and not error:
-        await _finish_product_pipeline(product_id, payload, description, collection)
-
-    created = await collection.find_one({"_id": result.inserted_id})
-    return document_to_response(created)
+    await _finish_product_pipeline(product_id, payload, description, collection)
 
 
 async def _finish_product_pipeline(

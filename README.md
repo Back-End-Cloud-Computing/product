@@ -64,7 +64,7 @@ Interactive docs (Swagger UI) are always available at **`/docs`** once the servi
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/products` | Create a product from its metadata (name, SKU, sale type, brand, category, attributes). |
+| `POST` | `/products` | Create a product from its metadata (name, SKU, sale type, brand, category, attributes). Answers `201` as soon as it is stored; AI description, summary and vector indexing run in the background — `GET /products/{id}` shows `description`/`summary` once done, or `error` if a step failed. A repeated SKU answers `409`. |
 | `GET` | `/products` | List products, paginated (`skip`, `limit`), filterable by `category`/`brand`. |
 | `GET` | `/products/{id}` | Fetch a single product. |
 | `PATCH` | `/products/{id}` | Partially update product metadata. |
